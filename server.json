@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.scrapeops/scrapeops-mcp-server",
+  "title": "ScrapeOps MCP Server",
+  "description": "MCP server for ScrapeOps Proxy API - web browsing, anti-bot bypass, JavaScript rendering, screenshots, and LLM-powered data extraction for AI agents.",
+  "version": "1.0.0",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/scrapeops/scrapeops-mcp-server.git",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "scrapeops-mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Your ScrapeOps API key",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true,
+          "name": "SCRAPEOPS_API_KEY"
+        }
+      ]
+    }
+  ]
+}

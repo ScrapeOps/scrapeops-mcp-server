@@ -1,0 +1,60 @@
+{
+  "name": "scrapeops-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for ScrapeOps Proxy API integration. Features web browsing, anti-bot bypass, JavaScript rendering, screenshots, and LLM-powered structured data extraction for AI agents.",
+  "type": "module",
+  "mcpName": "io.github.scrapeops/scrapeops-mcp-server",
+  "bin": {
+    "scrapeops-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "start": "node dist/index.js",
+    "start:cloud": "CLOUD_SERVICE=true node dist/index.js",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write .",
+    "prepare": "npm run build",
+    "publish": "npm run build && npm publish",
+    "publish-beta": "npm run build && npm publish --tag beta"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "firecrawl-fastmcp": "^1.0.4",
+    "typescript": "^5.9.2",
+    "zod": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "scrapeops",
+    "web-scraping",
+    "proxy",
+    "anti-bot-bypass",
+    "javascript-rendering",
+    "llm-extraction",
+    "ai-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scrapeops/scrapeops-mcp-server.git"
+  },
+  "author": "ScrapeOps",
+  "bugs": {
+    "url": "https://github.com/scrapeops/scrapeops-mcp-server/issues"
+  },
+  "homepage": "https://github.com/scrapeops/scrapeops-mcp-server#readme",
+  "devDependencies": {
+    "@types/node": "^24.3.1"
+  }
+}
