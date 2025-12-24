@@ -33,7 +33,7 @@ npm install -g scrapeops-mcp
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SCRAPEOPS_API_KEY` | Yes | Your ScrapeOps API key from [scrapeops.io](https://scrapeops.io/app/api-keys) |
+| `SCRAPEOPS_API_KEY` | Yes | Your ScrapeOps API key from [scrapeops.io](https://scrapeops.io/app/login) |
 
 ### How It Works
 
@@ -334,7 +334,7 @@ npm test
 
 **Authentication:** Query parameter `?api_key=...` (managed via server-side environment variables)
 
-For full API documentation, visit [ScrapeOps Documentation](https://scrapeops.io/docs/).
+For full API documentation, visit [ScrapeOps Documentation](https://scrapeops.io/docs/intro/).
 
 ## License
 
@@ -342,6 +342,5 @@ MIT License - see LICENSE file for details.
 
 ## Support
 
-- 📚 [Documentation](https://scrapeops.io/docs/)
-- 🐛 [Report Issues](https://github.com/scrapeops/scrapeops-mcp-server/issues)
-- 💬 [Discord Community](https://discord.gg/scrapeops)
+- 📚 [Documentation](https://scrapeops.io/docs/intro/)
+- 🐛 [Report Issues](https://github.com/ScrapeOps/scrapeops-mcp-server/issues)
