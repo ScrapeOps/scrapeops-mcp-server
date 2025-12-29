@@ -1,44 +1,23 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
-import { FastMCP, type Logger } from 'firecrawl-fastmcp';
+import { FastMCP } from 'firecrawl-fastmcp';
 import { z } from 'zod';
+import type {
+  Logger,
+  SessionData,
+  AuthenticateRequest,
+  ScrapeOpsResponse,
+  ErrorType,
+  RequestResult,
+  ScrapeOpsRequestParams,
+  UsedOptions,
+  ValidationParams,
+  ValidationResult,
+  SuggestedAdvancedParams,
+  ErrorResponse,
+} from './types/index.js';
 
 dotenv.config({ debug: false, quiet: true });
-
-interface SessionData {
-  scrapeOpsApiKey?: string;
-  [key: string]: unknown;
-}
-
-interface ScrapeOpsResponse {
-  data?: string;
-  screenshot?: string;
-  status?: string;
-  initial_status_code?: number;
-  final_status_code?: number;
-  url?: string;
-  [key: string]: unknown;
-}
-
-type ErrorType = 
-  | 'auth_failed'
-  | 'forbidden'
-  | 'not_found'
-  | 'rate_limited'
-  | 'server_error'
-  | 'bad_gateway'
-  | 'service_unavailable'
-  | 'network_error'
-  | 'unknown';
-
-interface RequestResult {
-  success: boolean;
-  data?: ScrapeOpsResponse | string;
-  error?: string;
-  errorType?: ErrorType;
-  statusCode?: number;
-  retriesAttempted?: number;
-}
 
 
 const ADVANCED_PARAMS = [
@@ -53,27 +32,22 @@ const ADVANCED_PARAMS = [
 type AdvancedParam = typeof ADVANCED_PARAMS[number];
 
 
-function hasAdvancedParams(params: Record<string, any>): string[] {
+function hasAdvancedParams(params: UsedOptions): string[] {
   const used: string[] = [];
   for (const param of ADVANCED_PARAMS) {
-    if (params[param] !== undefined && params[param] !== false) {
+    const value = params[param as keyof UsedOptions];
+    if (value !== undefined && value !== false) {
       used.push(param);
     }
   }
   return used;
 }
 
-interface ValidationResult {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-}
-
-const BASE_URL = 'https://proxy.scrapeops.io/v1/';
+const BASE_URL = 'http://localhost:9000/v1/';
 const ORIGIN = 'mcp-scrapeops';
 
-function removeEmptyValues<T extends Record<string, any>>(obj: T): Partial<T> {
-  const out: Partial<T> = {};
+function removeEmptyValues(obj: Partial<ScrapeOpsRequestParams>): Partial<ScrapeOpsRequestParams> {
+  const out: Partial<ScrapeOpsRequestParams> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (v == null) continue;
     if (typeof v === 'string' && v.trim() === '') continue;
@@ -84,13 +58,12 @@ function removeEmptyValues<T extends Record<string, any>>(obj: T): Partial<T> {
       Object.keys(v).length === 0
     )
       continue;
-    // @ts-expect-error dynamic assignment
-    out[k] = v;
+    (out as Record<string, unknown>)[k] = v;
   }
   return out;
 }
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: ScrapeOpsRequestParams): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -118,19 +91,20 @@ class ConsoleLogger implements Logger {
   }
 }
 
-
-if (!process.env.SCRAPEOPS_API_KEY) {
-  console.error('ERROR: SCRAPEOPS_API_KEY environment variable is required');
-  console.error('Usage: SCRAPEOPS_API_KEY=your-key npx scrapeops-mcp');
-  process.exit(1);
-}
-
 const server = new FastMCP<SessionData>({
   name: 'scrapeops-mcp',
   version: '1.0.0',
   logger: new ConsoleLogger(),
   roots: { enabled: false },
-  authenticate: async (): Promise<SessionData> => {
+  authenticate: async (req?: AuthenticateRequest): Promise<SessionData> => {
+    // Try to get key from HTTP headers (for SSE transport)
+    if (req && req.headers) {
+      const headerKey = req.headers['scrapeops-api-key'] || req.headers['scrapeops_api_key'];
+      if (headerKey) {
+        return { scrapeOpsApiKey: Array.isArray(headerKey) ? headerKey[0] : headerKey };
+      }
+    }
+    // Fallback to environment variable
     return { scrapeOpsApiKey: process.env.SCRAPEOPS_API_KEY };
   },
   health: {
@@ -155,7 +129,7 @@ function getApiKey(session?: SessionData): string {
 
 
 const RETRY_CONFIG = {
-  maxAttempts: parseInt(process.env.SCRAPEOPS_RETRY_MAX_ATTEMPTS || '0', 10),
+  maxAttempts: parseInt(process.env.SCRAPEOPS_RETRY_MAX_ATTEMPTS || '1', 10),
   initialDelay: parseInt(process.env.SCRAPEOPS_RETRY_INITIAL_DELAY || '1000', 10),
 };
 
@@ -201,10 +175,11 @@ function getErrorMessage(errorType: ErrorType, statusCode: number): string {
 
 async function makeRequest(
   apiKey: string,
-  params: Record<string, any>,
+  params: Partial<ScrapeOpsRequestParams>,
   log: Logger
 ): Promise<RequestResult> {
-  const queryParams = {
+  const queryParams: ScrapeOpsRequestParams = {
+    url: params.url || '',
     api_key: apiKey,
     ...params,
   };
@@ -213,7 +188,7 @@ async function makeRequest(
 
   let attempt = 0;
   let delay = RETRY_CONFIG.initialDelay;
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   while (attempt < RETRY_CONFIG.maxAttempts) {
     try {
@@ -287,7 +262,7 @@ async function makeRequest(
 }
 
 
-function validateParams(params: Record<string, any>): ValidationResult {
+function validateParams(params: ValidationParams): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -340,7 +315,7 @@ function generateErrorResponse(
   error: string,
   errorType: ErrorType | undefined,
   statusCode: number | undefined,
-  usedOptions: Record<string, any>,
+  usedOptions: UsedOptions,
   retriesAttempted: number = 0
 ): string {
   const usedAdvancedParams = hasAdvancedParams(usedOptions);
@@ -348,7 +323,7 @@ function generateErrorResponse(
 
   let userMessage: string;
   let canRetryWithAdvanced: boolean = false;
-  let suggestedAdvancedParams: Record<string, any> = {};
+  let suggestedAdvancedParams: SuggestedAdvancedParams = {};
 
   switch (errorType) {
     case 'auth_failed':
@@ -400,7 +375,7 @@ function generateErrorResponse(
       canRetryWithAdvanced = wasBasicRequest;
   }
 
-  const response: Record<string, any> = {
+  const response: ErrorResponse = {
     success: false,
     url,
     error: userMessage,
@@ -642,11 +617,11 @@ server.addTool({
     const params = args as z.infer<typeof mapsWebSchema>;
     const apiKey = getApiKey(session);
 
-    const requestParams: Record<string, any> = {
+    const requestParams: Partial<ScrapeOpsRequestParams> = {
       url: params.url,
     };
 
-    const usedOptions: Record<string, any> = {};
+    const usedOptions: UsedOptions = {};
     if (params.country) {
       requestParams.country = params.country;
       usedOptions.country = params.country;
@@ -1006,12 +981,12 @@ Extract structured data from webpages using auto-parsing or LLM-powered extracti
     const params = args as z.infer<typeof extractDataSchema>;
     const apiKey = getApiKey(session);
 
-    const requestParams: Record<string, any> = {
+    const requestParams: Partial<ScrapeOpsRequestParams> = {
       url: params.url,
       json_response: true,
     };
 
-    const usedOptions: Record<string, any> = {};
+    const usedOptions: UsedOptions = {};
     if (params.mode === 'auto') {
       requestParams.auto_extract = true;
     } else if (params.mode === 'llm') {
@@ -1144,9 +1119,245 @@ Extract structured data from webpages using auto-parsing or LLM-powered extracti
 });
 
 // ============================================================================
+// Tool 3: return_links - URL Extraction from Webpages
+// ============================================================================
+
+const returnLinksSchema = z.object({
+  url: z
+    .string()
+    .url()
+    .describe('The URL to extract links from'),
+
+  country: z
+    .enum(['us', 'gb', 'de', 'fr', 'ca', 'au', 'br', 'in', 'jp', 'nl', 'es', 'it'])
+    .optional()
+    .describe('Country for geo-targeting'),
+
+  residential: z
+    .boolean()
+    .optional()
+    .describe('Use residential proxies for better success rates'),
+
+  mobile: z
+    .boolean()
+    .optional()
+    .describe('Use mobile proxies'),
+
+  premium: z
+    .enum(['level_1', 'level_2'])
+    .optional()
+    .describe('Premium proxy level'),
+
+  bypass_level: z
+    .enum([
+      'generic_level_1',
+      'generic_level_2',
+      'generic_level_3',
+      'generic_level_4',
+      'cloudflare_level_1',
+      'cloudflare_level_2',
+      'cloudflare_level_3',
+      'datadome',
+      'incapsula',
+      'perimeterx',
+    ])
+    .optional()
+    .describe('Anti-bot bypass level'),
+
+  session_number: z
+    .number()
+    .optional()
+    .describe('Sticky session number (1-10000)'),
+
+  optimize_request: z
+    .boolean()
+    .optional()
+    .describe('Let ScrapeOps auto-optimize the request'),
+
+  max_request_cost: z
+    .number()
+    .optional()
+    .describe('Maximum credits allowed for the request'),
+});
+
+server.addTool({
+  name: 'return_links',
+  description: `Extract and categorize all URLs from a webpage.
+
+**Best for:**
+- Discovering all links on a page
+- Building sitemaps
+- Finding all assets (images, scripts, stylesheets)
+- Web crawling and link analysis
+- Identifying internal vs external links
+
+**What it extracts:**
+- Links from <a>, <area> tags
+- Images from <img src>, <img srcset>
+- Scripts from <script src>
+- Stylesheets from <link href>
+- Media from <video>, <audio>, <source>
+- Embedded content from <iframe>, <object>, <embed>
+- URLs from CSS url() functions
+- Meta refresh redirects
+- Open Graph and meta image URLs
+
+**URL Processing:**
+- Converts relative URLs to absolute
+- Removes duplicates
+- Filters out mailto:, tel:, javascript:, data: URLs
+- Categorizes into pages vs assets
+
+**Returns:** JSON with two arrays:
+- **pages**: HTML documents and navigational URLs
+- **assets**: Static resources (js, css, images, fonts, media)
+
+**Usage Examples:**
+
+1. Basic URL extraction:
+\`\`\`json
+{
+  "name": "return_links",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+\`\`\`
+
+2. Extract URLs from protected site:
+\`\`\`json
+{
+  "name": "return_links",
+  "arguments": {
+    "url": "https://protected-site.com",
+    "bypass_level": "generic_level_1"
+  }
+}
+\`\`\`
+
+3. Geo-targeted extraction:
+\`\`\`json
+{
+  "name": "return_links",
+  "arguments": {
+    "url": "https://example.de",
+    "country": "de"
+  }
+}
+\`\`\`
+`,
+  parameters: returnLinksSchema,
+  execute: async (
+    args: unknown,
+    { session, log }: { session?: SessionData; log: Logger }
+  ): Promise<string> => {
+    const params = args as z.infer<typeof returnLinksSchema>;
+    const apiKey = getApiKey(session);
+
+    const requestParams: Partial<ScrapeOpsRequestParams> = {
+      url: params.url,
+      return_links: true,
+    };
+
+    const usedOptions: UsedOptions = {};
+
+    if (params.country) {
+      requestParams.country = params.country;
+      usedOptions.country = params.country;
+    }
+    if (params.residential) {
+      requestParams.residential = true;
+      usedOptions.residential = true;
+    }
+    if (params.mobile) {
+      requestParams.mobile = true;
+      usedOptions.mobile = true;
+    }
+    if (params.premium) {
+      requestParams.premium = params.premium;
+      usedOptions.premium = params.premium;
+    }
+    if (params.bypass_level) {
+      requestParams.bypass = params.bypass_level;
+      usedOptions.bypass_level = params.bypass_level;
+    }
+    if (params.session_number) {
+      requestParams.session_number = params.session_number;
+      usedOptions.session_number = params.session_number;
+    }
+    if (params.optimize_request) {
+      requestParams.optimize_request = true;
+      usedOptions.optimize_request = true;
+      if (params.max_request_cost) {
+        requestParams.max_request_cost = params.max_request_cost;
+        usedOptions.max_request_cost = params.max_request_cost;
+      }
+    }
+
+    const validation = validateParams(usedOptions);
+
+    if (!validation.valid) {
+      log.error('Parameter validation failed', { errors: validation.errors });
+      return JSON.stringify({
+        success: false,
+        url: params.url,
+        error: 'Invalid parameter combination',
+        validation_errors: validation.errors,
+      }, null, 2);
+    }
+
+    log.info('return_links request', {
+      url: params.url,
+      options: Object.keys(usedOptions).length > 0 ? usedOptions : 'basic',
+    });
+
+    const result = await makeRequest(apiKey, removeEmptyValues(requestParams), log);
+
+    if (result.success) {
+      log.info('Links extraction successful');
+      const data = result.data as ScrapeOpsResponse;
+      return JSON.stringify({
+        success: true,
+        url: params.url,
+        status: data?.status || 'links_extract_successful',
+        data: data?.data || data,
+      }, null, 2);
+    }
+
+    log.warn('Links extraction failed', {
+      error: result.error,
+      errorType: result.errorType,
+      statusCode: result.statusCode,
+    });
+
+    return generateErrorResponse(
+      params.url,
+      result.error || 'Unknown error',
+      result.errorType,
+      result.statusCode,
+      usedOptions,
+      result.retriesAttempted || 0
+    );
+  },
+});
+
+// ============================================================================
 // Server Startup
 // ============================================================================
 
-await server.start({
-  transportType: 'stdio',
-});
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+
+if (port) {
+  await server.start({
+    transportType: 'httpStream',
+    httpStream: {
+      port,
+    },
+  });
+  console.error(`ScrapeOps MCP Server running on port ${port} (SSE transport)`);
+  console.error(`Endpoint: http://localhost:${port}/sse`);
+} else {
+  await server.start({
+    transportType: 'stdio',
+  });
+}
