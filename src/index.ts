@@ -1342,7 +1342,7 @@ server.addTool({
 // Server Startup
 // ============================================================================
 
-const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
 
 if (port) {
   await server.start({

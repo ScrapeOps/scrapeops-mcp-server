@@ -143,7 +143,8 @@ You can run the server locally as an HTTP/SSE server instead of using stdio tran
 **1. Start the server:**
 
 ```bash
-# Default port is 8080 (can be overridden with PORT env var)
+# Set the port for HTTP/SSE mode (required for local server)
+export PORT=8080
 export SCRAPEOPS_API_KEY=your-api-key-here
 
 # Run the server
@@ -152,7 +153,9 @@ npm start
 scrapeops-mcp
 ```
 
-The server will start on `http://localhost:8080/sse` by default (or the port specified by the `PORT` environment variable).
+The server will start on `http://localhost:8080/sse` (or the port specified by the `PORT` environment variable).
+
+**Note:** If `PORT` is not set, the server will run in stdio mode (for use with `npx` in MCP clients like Cursor). Set `PORT` explicitly to run as an HTTP/SSE server.
 
 **2. Configure Cursor to connect to the local server:**
 
