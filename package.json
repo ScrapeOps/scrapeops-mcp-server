@@ -1,6 +1,6 @@
 {
-  "name": "scrapeops-mcp",
-  "version": "1.0.0",
+  "name": "@scrapeops/mcp",
+  "version": "1.0.1",
   "description": "MCP server for ScrapeOps Proxy API integration. Features web browsing, anti-bot bypass, JavaScript rendering, screenshots, and LLM-powered structured data extraction for AI agents.",
   "type": "module",
   "mcpName": "io.github.scrapeops/scrapeops-mcp-server",

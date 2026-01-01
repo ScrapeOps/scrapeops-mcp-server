@@ -18,13 +18,13 @@ A Model Context Protocol (MCP) server that exposes the full capabilities of the 
 ### Running with npx
 
 ```bash
-env SCRAPEOPS_API_KEY=YOUR_API_KEY npx -y scrapeops-mcp
+env SCRAPEOPS_API_KEY=YOUR_API_KEY npx -y @scrapeops/mcp
 ```
 
 ### Manual Installation
 
 ```bash
-npm install -g scrapeops-mcp
+npm install -g @scrapeops/mcp
 ```
 
 ## Configuration
@@ -61,9 +61,9 @@ The MCP server uses a **simple, single-request approach**:
 ```json
 {
   "mcpServers": {
-    "scrapeops-mcp": {
+    "@scrapeops/mcp": {
       "command": "npx",
-      "args": ["-y", "scrapeops-mcp"],
+      "args": ["-y", "@scrapeops/mcp"],
       "env": {
         "SCRAPEOPS_API_KEY": "YOUR-API-KEY"
       }
@@ -79,9 +79,9 @@ Add this to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "scrapeops-mcp": {
+    "@scrapeops/mcp": {
       "command": "npx",
-      "args": ["-y", "scrapeops-mcp"],
+      "args": ["-y", "@scrapeops/mcp"],
       "env": {
         "SCRAPEOPS_API_KEY": "YOUR_API_KEY_HERE"
       }
@@ -108,7 +108,7 @@ Add to your User Settings (JSON) via `Ctrl + Shift + P` → `Preferences: Open U
     "servers": {
       "scrapeops": {
         "command": "npx",
-        "args": ["-y", "scrapeops-mcp"],
+        "args": ["-y", "@scrapeops/mcp"],
         "env": {
           "SCRAPEOPS_API_KEY": "${input:apiKey}"
         }
@@ -125,9 +125,9 @@ Add to your `./codeium/windsurf/model_config.json`:
 ```json
 {
   "mcpServers": {
-    "scrapeops-mcp": {
+    "@scrapeops/mcp": {
       "command": "npx",
-      "args": ["-y", "scrapeops-mcp"],
+      "args": ["-y", "@scrapeops/mcp"],
       "env": {
         "SCRAPEOPS_API_KEY": "YOUR_API_KEY"
       }
@@ -136,43 +136,57 @@ Add to your `./codeium/windsurf/model_config.json`:
 }
 ```
 
+### Running Local Server (HTTP/SSE Transport)
+
+You can run the server locally as an HTTP/SSE server instead of using stdio transport. This is useful for development or custom deployments.
+
+**1. Start the server:**
+
+```bash
+# Default port is 8080 (can be overridden with PORT env var)
+export SCRAPEOPS_API_KEY=your-api-key-here
+
+# Run the server
+npm start
+# or if you have the package installed globally
+scrapeops-mcp
+```
+
+The server will start on `http://localhost:8080/sse` by default (or the port specified by the `PORT` environment variable).
+
+**2. Configure Cursor to connect to the local server:**
+
+Edit your Cursor MCP configuration file (typically at `~/.cursor/mcp.json` or in Cursor Settings):
+
+```json
+{
+  "mcpServers": {
+    "@scrapeops/mcp": {
+      "url": "http://localhost:8080/sse",
+      "headers": {
+        "scrapeops-api-key": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Note:** When using HTTP/SSE transport, you can pass the API key either:
+- Via the `scrapeops-api-key` header in the configuration (as shown above), or
+- Via the `SCRAPEOPS_API_KEY` environment variable when starting the server
+
 ## Available Tools
 
-### Tool 1: `Maps_web`
+### Tool 1: `maps_web`
 
 General-purpose web browsing tool for reading pages, taking screenshots, and bypassing anti-bot protections.
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | string | Yes | The URL to browse |
-| `country` | enum | No | Country for geo-targeting: `us`, `gb`, `de`, `fr`, `ca`, `au`, `br`, `in`, `jp`, `nl`, `es`, `it` |
-| `residential` | boolean | No | Use residential proxies |
-| `mobile` | boolean | No | Use mobile proxies |
-| `render_js` | boolean | No | Enable JavaScript rendering |
-| `screenshot` | boolean | No | Return a screenshot (base64 PNG) |
-| `wait_for` | string | No | CSS selector to wait for |
-| `wait` | number | No | Time to wait (ms) |
-| `scroll` | number | No | Scroll pixels before capture |
-| `bypass_level` | enum | No | Anti-bot bypass level |
-| `premium` | enum | No | Premium proxy level: `level_1`, `level_2` |
-| `device_type` | enum | No | `desktop` or `mobile` |
-| `follow_redirects` | boolean | No | Follow HTTP redirects |
-
-**Bypass Levels:**
-- `generic_level_1` - `generic_level_4`
-- `cloudflare_level_1` - `cloudflare_level_3`
-- `datadome`
-- `incapsula`
-- `perimeterx`
 
 **Usage Examples:**
 
 ```json
 // Simple page browse
 {
-  "name": "Maps_web",
+  "name": "maps_web",
   "arguments": {
     "url": "https://example.com"
   }
@@ -180,7 +194,7 @@ General-purpose web browsing tool for reading pages, taking screenshots, and byp
 
 // Screenshot from Germany with residential proxy
 {
-  "name": "Maps_web",
+  "name": "maps_web",
   "arguments": {
     "url": "https://example.de",
     "country": "de",
@@ -191,7 +205,7 @@ General-purpose web browsing tool for reading pages, taking screenshots, and byp
 
 // Bypass Cloudflare protection
 {
-  "name": "Maps_web",
+  "name": "maps_web",
   "arguments": {
     "url": "https://protected-site.com",
     "bypass_level": "cloudflare_level_2",
@@ -204,28 +218,6 @@ General-purpose web browsing tool for reading pages, taking screenshots, and byp
 ### Tool 2: `extract_data`
 
 Structured data extraction using auto-parsing or LLM-powered extraction.
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | string | Yes | The URL to extract data from |
-| `mode` | enum | Yes | `auto` or `llm` |
-| `data_schema` | enum | No | Schema for LLM extraction |
-| `response_format` | enum | No | `json` or `markdown` |
-| `country` | enum | No | Country for geo-targeting |
-| `residential` | boolean | No | Use residential proxies |
-| `render_js` | boolean | No | Enable JavaScript rendering |
-| `wait_for` | string | No | CSS selector to wait for |
-| `wait` | number | No | Time to wait (ms) |
-| `bypass_level` | enum | No | Anti-bot bypass level |
-
-**Data Schemas:**
-- **Product**: `product_page`, `product_reviews_page`, `product_search_page`, `product_seller_page`
-- **Jobs**: `job_page`, `job_advert_page`, `job_search_page`
-- **Company**: `company_page`, `company_job_page`, `company_location_page`, `company_review_page`, `company_search_page`, `company_social_media_page`
-- **Real Estate**: `real_estate_page`, `real_estate_profile_page`, `real_estate_search_page`
-- **Search**: `serp_search_page`
 
 **Usage Examples:**
 
@@ -266,13 +258,13 @@ Structured data extraction using auto-parsing or LLM-powered extraction.
 ## User Stories
 
 ### The Visual Debugger
-> "User complains a site looks broken in Germany. The AI calls `Maps_web(url='...', country='de', screenshot=true)`. The user sees the actual screenshot of the site rendered via a German residential IP."
+> "User complains a site looks broken in Germany. The AI calls `maps_web(url='...', country='de', screenshot=true)`. The user sees the actual screenshot of the site rendered via a German residential IP."
 
 ### The Efficient Scraper
 > "User needs pricing data. Instead of fetching HTML and parsing it (wasting tokens), the AI calls `extract_data(url='...', mode='llm', data_schema='product_page')`. ScrapeOps handles the heavy lifting, and the AI just displays the final JSON."
 
 ### The Bypass Expert
-> "The AI tries to access a site and gets blocked. It automatically retries the request using `Maps_web` with `bypass_level='generic_level_3'` and `residential=true` to overcome the blockage."
+> "The AI tries to access a site and gets blocked. It automatically retries the request using `maps_web` with `bypass_level='generic_level_3'` and `residential=true` to overcome the blockage."
 
 ## System Configuration
 
@@ -280,16 +272,12 @@ The server includes configurable retry parameters with exponential backoff:
 
 ```javascript
 const RETRY_CONFIG = {
-  maxAttempts: 0,      // Default: 0 (no retries) - configurable via SCRAPEOPS_RETRY_MAX_ATTEMPTS
-  initialDelay: 1000,  // Initial delay before first retry in milliseconds (configurable via SCRAPEOPS_RETRY_INITIAL_DELAY)
+  maxAttempts: 1,      
+  initialDelay: 1000, 
 };
 ```
 
 **Retry Behavior:**
-- **Default: No automatic retries** (maxAttempts = 0)
-- Only retries on HTTP 500 (Internal Server Error) when maxAttempts > 0
-- Does NOT retry on 429 (rate limits), 502, 503, or other status codes
-- Uses exponential backoff (delay doubles on each retry)
 - Network errors are retried once regardless of maxAttempts setting
 - To enable retries, set `SCRAPEOPS_RETRY_MAX_ATTEMPTS` environment variable
 

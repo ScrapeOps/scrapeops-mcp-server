@@ -29,9 +29,6 @@ const ADVANCED_PARAMS = [
   'optimize_request',
 ] as const;
 
-type AdvancedParam = typeof ADVANCED_PARAMS[number];
-
-
 function hasAdvancedParams(params: UsedOptions): string[] {
   const used: string[] = [];
   for (const param of ADVANCED_PARAMS) {
@@ -43,7 +40,7 @@ function hasAdvancedParams(params: UsedOptions): string[] {
   return used;
 }
 
-const BASE_URL = 'http://localhost:9000/v1/';
+const BASE_URL = 'https://proxy.scrapeops.io/v1/';
 const ORIGIN = 'mcp-scrapeops';
 
 function removeEmptyValues(obj: Partial<ScrapeOpsRequestParams>): Partial<ScrapeOpsRequestParams> {
@@ -1345,7 +1342,7 @@ server.addTool({
 // Server Startup
 // ============================================================================
 
-const port = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 
 if (port) {
   await server.start({
