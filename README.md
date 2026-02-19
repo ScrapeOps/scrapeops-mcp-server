@@ -72,6 +72,21 @@ The MCP server uses a **simple, single-request approach**:
 }
 ```
 
+for development environment
+
+```json
+{
+    "mcpServers": {
+        "@scrapeops/mcp": {
+        "url": "http://localhost:8080/sse",
+        "headers": {
+            "scrapeops-api-key": "SCRAPEOPS_API_KEY"
+        }
+        }
+    }
+}
+```
+
 ### Running on Claude Desktop
 
 Add this to your `claude_desktop_config.json`:
@@ -86,6 +101,28 @@ Add this to your `claude_desktop_config.json`:
         "SCRAPEOPS_API_KEY": "YOUR_API_KEY_HERE"
       }
     }
+  }
+}
+```
+
+for development environment
+
+```json
+{
+  "mcpServers": {
+    "scrapeops-mcp": {
+      "command": "node",
+      "args": [
+        "/Users/macbook/Documents/ScrapeOps/scrapeops-mcp-server/dist/index.js" 
+      ],
+      "env": {
+        "SCRAPEOPS_API_KEY": "SCRAPEOPS_API_KEY"
+      }
+    }
+  },
+  "preferences": {
+    "sidebarMode": "chat",
+    "coworkScheduledTasksEnabled": false
   }
 }
 ```
