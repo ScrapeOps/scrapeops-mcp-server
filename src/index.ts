@@ -49,6 +49,35 @@ const PARSER_BASE_URL = 'https://parser.scrapeops.io/v1/';
 const BASE_URL = 'https://proxy.scrapeops.io/v1/';
 const ORIGIN = 'mcp-scrapeops';
 
+/** Timeout for parser-service fetches (web-analyzer, determine-page-type, css-selector-stability, data-schema). */
+const PARSER_FETCH_TIMEOUT_MS = 120_000;
+
+/**
+ * fetch with AbortController timeout. Clears the timer on success or throw.
+ * Converts AbortError into a descriptive Error so callers see a timeout-specific message.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit & { timeoutMs?: number },
+  label: string
+): Promise<Response> {
+  const timeoutMs = init.timeoutMs ?? PARSER_FETCH_TIMEOUT_MS;
+  const { timeoutMs: _t, ...fetchInit } = init;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...fetchInit, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`${label} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  }
+}
+
 function removeEmptyValues(obj: Partial<ScrapeOpsRequestParams>): Partial<ScrapeOpsRequestParams> {
   const out: Partial<ScrapeOpsRequestParams> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -1654,14 +1683,18 @@ async function callWebAnalyzer(
   const endpoint = `${PARSER_BASE_URL}web-analyzer?${queryParams.toString()}`;
   log.info('Calling web-analyzer', { endpoint, url });
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+  const response = await fetchWithTimeout(
+    endpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+      },
+      body: JSON.stringify({ url }),
     },
-    body: JSON.stringify({ url }),
-  });
+    'Web analyzer request'
+  );
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
@@ -1736,7 +1769,7 @@ Returns a difficulty score (1-5), detected anti-bot protections, JavaScript fram
       // Call the Go parser web-analyzer route with protections enabled for anti-bot data
       const analyzerResponse = await callWebAnalyzer(apiKey, params.url, { protections: true }, log);
 
-      const score = Math.min(10, Math.max(1, analyzerResponse.scraping_complexity_score || 1));
+      const score = Math.min(5, Math.max(1, analyzerResponse.scraping_complexity_score || 1));
       const level = getDifficultyLevel(score);
 
       // Build factors from the analyzer response
@@ -1830,6 +1863,8 @@ Returns a difficulty score (1-5), detected anti-bot protections, JavaScript fram
       success: true,
       difficulty_score: score,
       difficulty_level: level,
+      factors,
+      recommendations,
     }, null, 2);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1920,9 +1955,19 @@ Makes two requests — one without JS rendering and one with — then compares t
 
     const emptyContainers = detectEmptyContainers(noJsHtml);
     const noscriptMessages = detectNoscriptMessages(noJsHtml);
-    const jsFrameworks = detectJSFrameworks(noJsHtml || jsHtml);
+    const noJsFrameworks = detectJSFrameworks(noJsHtml || '');
+    const renderedFrameworks = detectJSFrameworks(jsHtml || '');
+    const jsFrameworksByName = new Map<string, JSFrameworkDetection>();
+    for (const f of noJsFrameworks) jsFrameworksByName.set(f.name, f);
+    for (const f of renderedFrameworks) jsFrameworksByName.set(f.name, f);
+    const jsFrameworks = Array.from(jsFrameworksByName.values());
 
-    const contentRatio = jsLength > 0 && noJsLength > 0 ? jsLength / noJsLength : 0;
+    const contentRatio =
+      noJsLength === 0 && jsLength > 0
+        ? Number.POSITIVE_INFINITY
+        : jsLength > 0 && noJsLength > 0
+          ? jsLength / noJsLength
+          : 0;
     const contentDiff = jsLength - noJsLength;
 
     const reasons: string[] = [];
@@ -2417,17 +2462,22 @@ Fetches the page HTML and uses LLM-powered analysis to determine the page type f
       const endpoint = `${PARSER_BASE_URL}determine-page-type`;
       log.info('Calling determine-page-type', { endpoint, url: params.url });
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+      const response = await fetchWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: {
+            'Api_key': apiKey,
+            'Content-Type': 'application/json',
+            'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+          },
+          body: JSON.stringify({
+            url: params.url,
+            html_content: htmlContent,
+          }),
         },
-        body: JSON.stringify({
-          url: params.url,
-          html_content: htmlContent,
-        }),
-      });
+        'Page type classification (determine-page-type)'
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -3444,15 +3494,19 @@ Makes multiple JS-rendered requests to the same URL and compares the CSS classes
       const endpoint = `${PARSER_BASE_URL}web-analyzer/css-selector-stability`;
       log.info('Calling css-selector-stability endpoint', { endpoint, url: params.url });
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Api_key': apiKey,
-          'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
-          'Content-Type': 'application/json',
+      const response = await fetchWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: {
+            'Api_key': apiKey,
+            'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: params.url }),
         },
-        body: JSON.stringify({ url: params.url }),
-      });
+        'CSS selector stability request'
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -3737,14 +3791,19 @@ Automatically classifies the page type (or accepts a manual override), then retu
 
         // Call determine-page-type
         const classifyEndpoint = `${PARSER_BASE_URL}determine-page-type`;
-        const classifyResponse = await fetch(classifyEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+        const classifyResponse = await fetchWithTimeout(
+          classifyEndpoint,
+          {
+            method: 'POST',
+            headers: {
+              'Api_key': apiKey,
+              'Content-Type': 'application/json',
+              'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+            },
+            body: JSON.stringify({ url: params.url, html_content: htmlContent }),
           },
-          body: JSON.stringify({ url: params.url, html_content: htmlContent }),
-        });
+          'Page classification (determine-page-type)'
+        );
 
         if (!classifyResponse.ok) {
           const errorText = await classifyResponse.text().catch(() => '');
@@ -3778,15 +3837,19 @@ Automatically classifies the page type (or accepts a manual override), then retu
       const schemaEndpoint = `${PARSER_BASE_URL}web-analyzer/data-schema`;
       log.info('Fetching data schema', { endpoint: schemaEndpoint, page_type: pageType });
 
-      const schemaResponse = await fetch(schemaEndpoint, {
-        method: 'POST',
-        headers: {
-          'Api_key': apiKey,
-          'Content-Type': 'application/json',
-          'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+      const schemaResponse = await fetchWithTimeout(
+        schemaEndpoint,
+        {
+          method: 'POST',
+          headers: {
+            'Api_key': apiKey,
+            'Content-Type': 'application/json',
+            'User-Agent': `ScrapeOps-MCP/${ORIGIN}`,
+          },
+          body: JSON.stringify({ page_type: pageType }),
         },
-        body: JSON.stringify({ page_type: pageType }),
-      });
+        'Data schema request'
+      );
 
       if (!schemaResponse.ok) {
         const errorText = await schemaResponse.text().catch(() => '');
