@@ -43,7 +43,9 @@ function hasAdvancedParams(params: UsedOptions): string[] {
   return used;
 }
 
-const PARSER_BASE_URL = 'https://parser.scrapeops.io/v1/'; 
+// const PARSER_BASE_URL = 'http://localhost:6600/v1/';
+// const BASE_URL = 'http://localhost:9000/v1/';
+const PARSER_BASE_URL = 'https://parser.scrapeops.io/v1/';
 const BASE_URL = 'https://proxy.scrapeops.io/v1/';
 const ORIGIN = 'mcp-scrapeops';
 
@@ -1826,38 +1828,8 @@ Returns a difficulty score (1-5), detected anti-bot protections, JavaScript fram
 
     return JSON.stringify({
       success: true,
-        url: analyzerResponse.url,
-        domain: analyzerResponse.domain,
       difficulty_score: score,
       difficulty_level: level,
-        analysis_status: analyzerResponse.analysis_status,
-      response_analysis: {
-          page_type: analyzerResponse.page_type,
-          classification_confidence: analyzerResponse.classification_confidence,
-          avg_response_time_ms: analyzerResponse.avg_response_time_ms,
-          bandwidth_per_page_kb: analyzerResponse.bandwidth_per_page_kb,
-          total_network_bytes_kb: analyzerResponse.total_network_bytes_kb,
-        },
-        detected_technologies: analyzerResponse.detected_technologies,
-        anti_bot_measures: analyzerResponse.anti_bot_measures,
-        js_rendering: {
-          requires_javascript: analyzerResponse.requires_javascript,
-          rendering_type: analyzerResponse.rendering_type,
-        },
-        css_selector_stability: analyzerResponse.css_selector_stability,
-        rate_limiting: analyzerResponse.rate_limiting_detected ? {
-          detected: true,
-          requests_per_minute: analyzerResponse.rate_limit_requests_per_minute,
-          strategy: analyzerResponse.rate_limit_strategy,
-        } : { detected: false },
-        proxy_recommendation: {
-          recommended_type: analyzerResponse.recommended_proxy_type,
-          requires_residential_ip: analyzerResponse.requires_residential_ip,
-          residential_ip_reason: analyzerResponse.residential_ip_reason || undefined,
-          estimated_cost_per_request: analyzerResponse.estimated_cost_per_request,
-        },
-      factors,
-      recommendations,
     }, null, 2);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
