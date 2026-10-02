@@ -4,6 +4,8 @@ export type { Logger, TransportArgs, ToolContext, ToolExecute } from 'firecrawl-
 
 export interface SessionData {
   scrapeOpsApiKey?: string;
+  accountId?: string;
+  authType?: 'env' | 'api_key' | 'oauth';
   [key: string]: unknown;
 }
 

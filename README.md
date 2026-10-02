@@ -136,9 +136,9 @@ Add to your `./codeium/windsurf/model_config.json`:
 }
 ```
 
-### Running Local Server (HTTP/SSE Transport)
+### Running a local HTTP server
 
-You can run the server locally as an HTTP/SSE server instead of using stdio transport. This is useful for development or custom deployments.
+You can run the same MCP server over HTTP instead of stdio. This is useful for development. It is not the hosted OAuth server.
 
 **1. Start the server:**
 
@@ -153,9 +153,9 @@ npm start
 scrapeops-mcp
 ```
 
-The server will start on `http://localhost:8080/sse` (or the port specified by the `PORT` environment variable).
+The server exposes Streamable HTTP at `http://localhost:8080/mcp` (or the port specified by `PORT`). The legacy SSE endpoint remains available at `/sse`.
 
-**Note:** If `PORT` is not set, the server will run in stdio mode (for use with `npx` in MCP clients like Cursor). Set `PORT` explicitly to run as an HTTP/SSE server.
+**Note:** If `PORT` is not set, the server runs in stdio mode (for use with `npx` in MCP clients like Cursor). Set `PORT` explicitly to run as an HTTP server.
 
 **2. Configure Cursor to connect to the local server:**
 
@@ -165,7 +165,7 @@ Edit your Cursor MCP configuration file (typically at `~/.cursor/mcp.json` or in
 {
   "mcpServers": {
     "@scrapeops/mcp": {
-      "url": "http://localhost:8080/sse",
+      "url": "http://localhost:8080/mcp",
       "headers": {
         "scrapeops-api-key": "your-api-key-here"
       }
@@ -174,9 +174,64 @@ Edit your Cursor MCP configuration file (typically at `~/.cursor/mcp.json` or in
 }
 ```
 
-**Note:** When using HTTP/SSE transport, you can pass the API key either:
+**Note:** When using the local HTTP transport, you can pass the API key either:
 - Via the `scrapeops-api-key` header in the configuration (as shown above), or
 - Via the `SCRAPEOPS_API_KEY` environment variable when starting the server
+
+This local HTTP mode is separate from the hosted remote MCP. It keeps using your API key directly and does not require OAuth.
+
+## Remote MCP
+
+The hosted server is for clients that connect over HTTPS instead of running the npm package, including Claude's remote connector directory.
+
+**Endpoint:** `https://mcp.scrapeops.io/mcp`
+
+Claude users add that URL as a remote MCP connector. The server responds to an unauthenticated request with a `401` and a `WWW-Authenticate` challenge. Claude then:
+
+1. Reads the OAuth protected-resource and authorization-server metadata
+2. Registers itself with dynamic client registration
+3. Sends the user to the ScrapeOps sign-in and approval page
+4. Calls the MCP endpoint with `Authorization: Bearer <token>`
+
+The access token is resolved on the server to that user's ScrapeOps account. The account API key is used for Proxy API calls and is not returned to Claude. Tokens expire, refresh tokens rotate, and reuse of an old refresh token revokes that connection. A user can also revoke every connection at `https://mcp.scrapeops.io/oauth/revoke-access`.
+
+`npx -y @scrapeops/mcp` with `SCRAPEOPS_API_KEY` is unchanged.
+
+## Deployment
+
+The remote server is a separate Node process from the ScrapeOps frontend. Terminate TLS at the load balancer and forward `https://mcp.scrapeops.io` to the container. The process expects `X-Forwarded-Proto: https` in production.
+
+```bash
+docker build -t scrapeops-mcp .
+docker run --rm -p 8080:8080 \
+  -e PUBLIC_BASE_URL=https://mcp.scrapeops.io \
+  -e TOKEN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e SENTRY_DSN=https://key@o0.ingest.sentry.io/0 \
+  -v scrapeops-mcp-data:/data \
+  scrapeops-mcp
+```
+
+| Variable | Required in production | Description |
+|----------|------------------------|-------------|
+| `PUBLIC_BASE_URL` | Yes | Public origin, for example `https://mcp.scrapeops.io` |
+| `TOKEN_ENCRYPTION_KEY` | Yes | 32-byte key (`openssl rand -hex 32`) used to encrypt account API keys at rest |
+| `REQUIRE_OAUTH` | Yes | `true` so a process-wide API key cannot authenticate remote users |
+| `OAUTH_ENABLED` | Yes | `true` |
+| `DATA_DIR` | No | SQLite directory for OAuth clients and tokens. Defaults to `./data` |
+| `SCRAPEOPS_BACKEND_URL` | No | Login API. Defaults to `https://backend.scrapeops.io/v1` |
+| `SENTRY_DSN` | No | Sends server errors to Sentry |
+| `LOG_FORMAT` | No | Set to `json` for production logs |
+| `ALLOWED_ORIGINS` | No | Extra browser origins, comma-separated. `https://claude.ai` and `https://claude.com` are already allowed |
+
+`GET /health` returns `{ "status": "ok" }`. MCP and OAuth routes require HTTPS when `NODE_ENV=production`. Requests are rate limited per IP and per account.
+
+Before submitting the Claude connector, confirm with a deployed server:
+
+1. `https://mcp.scrapeops.io/mcp` is accepted as a remote MCP URL.
+2. Claude discovers `maps_web`, `extract_data`, and `return_links`.
+3. Connect opens the ScrapeOps sign-in page.
+4. After approval, a tool call is billed to the signed-in account.
+5. Revoking access from Claude, or at `/oauth/revoke-access`, makes the next call return `401`.
 
 ## Available Tools
 
