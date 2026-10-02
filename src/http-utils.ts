@@ -62,11 +62,18 @@ export function sendJson(
   res.end(payload);
 }
 
-export function sendHtml(res: ServerResponse, status: number, html: string, extraHeaders: Record<string, string> = {}): void {
+export function sendHtml(
+  res: ServerResponse,
+  status: number,
+  html: string,
+  extraHeaders: Record<string, string> = {},
+  formActionOrigin?: string
+): void {
+  const formAction = formActionOrigin ? `'self' ${formActionOrigin}` : "'self'";
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
-    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     ...extraHeaders,

@@ -60,6 +60,7 @@ export async function handleOAuthRequest(req: IncomingMessage, res: ServerRespon
     '/.well-known/oauth-authorization-server/mcp',
     '/authorize',
     '/authorize/login',
+    '/authorize/consent',
     '/authorize/decision',
     '/token',
     '/register',
@@ -105,12 +106,16 @@ export async function handleOAuthRequest(req: IncomingMessage, res: ServerRespon
       await handleLogin(req, res, ctx);
       return true;
     }
+    if (path === '/authorize/consent' && req.method === 'GET') {
+      await handleConsentGet(req, res, ctx);
+      return true;
+    }
     if (path === '/authorize/decision' && req.method === 'POST') {
       await handleDecision(req, res, ctx);
       return true;
     }
     if (path === '/oauth/revoke-access' && req.method === 'GET') {
-      sendHtml(res, 200, revokePage());
+    renderPage(ctx, res, 200, revokePage());
       return true;
     }
     if (path === '/oauth/revoke-access' && req.method === 'POST') {
@@ -140,7 +145,7 @@ async function handleAuthorizeGet(req: IncomingMessage, url: URL, res: ServerRes
     await denyAuthorize(ctx, res, form, invalid.error, invalid.description);
     return;
   }
-  sendHtml(res, 200, loginPage(form));
+  renderPage(ctx, res, 200, loginPage(form));
 }
 
 async function handleLogin(req: IncomingMessage, res: ServerResponse, ctx: OAuthContext): Promise<void> {
@@ -156,7 +161,7 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, ctx: OAuth
   const email = params.get('email')?.trim() || '';
   const password = params.get('password') || '';
   if (!email || !password) {
-    sendHtml(res, 400, loginPage(form, 'Email and password are required.'));
+    renderPage(ctx, res, 400, loginPage(form, 'Email and password are required.'));
     return;
   }
 
@@ -166,11 +171,10 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, ctx: OAuth
   } catch (error) {
     const message = error instanceof LoginError ? error.message : 'ScrapeOps login failed.';
     logger.warn('oauth login failed', { path: '/authorize/login' });
-    sendHtml(res, 401, loginPage(form, message));
+    renderPage(ctx, res, 401, loginPage(form, message));
     return;
   }
 
-  const client = await ctx.store.getClient(form.clientId);
   const pendingId = randomToken();
   await ctx.store.savePending({
     id: pendingId,
@@ -189,14 +193,24 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, ctx: OAuth
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
 
-  sendHtml(res, 200, consentPage({
+  res.setHeader('set-cookie', pendingCookie(pendingId, ctx.baseUrl().startsWith('https://')));
+  redirect(res, '/authorize/consent');
+}
+
+async function handleConsentGet(req: IncomingMessage, res: ServerResponse, ctx: OAuthContext): Promise<void> {
+  const pendingId = readCookie(req, PENDING_COOKIE);
+  const pending = pendingId ? await ctx.store.getPending(pendingId) : null;
+  if (!pending || !pendingId) {
+    renderPage(ctx, res, 400, messagePage('Session expired', 'The sign-in session expired. Start the connection again from your MCP client.'));
+    return;
+  }
+  const client = await ctx.store.getClient(pending.clientId);
+  renderPage(ctx, res, 200, consentPage({
     pendingId,
     clientName: client?.clientName || 'MCP client',
-    email,
-    accounts: accounts.map((account) => ({ id: account.id, name: account.name })),
-  }), {
-    'set-cookie': pendingCookie(pendingId, ctx.baseUrl().startsWith('https://')),
-  });
+    email: pending.userEmail,
+    accounts: pending.accounts.map((account) => ({ id: account.id, name: account.name })),
+  }));
 }
 
 async function handleDecision(req: IncomingMessage, res: ServerResponse, ctx: OAuthContext): Promise<void> {
@@ -206,7 +220,7 @@ async function handleDecision(req: IncomingMessage, res: ServerResponse, ctx: OA
   const cookie = readCookie(req, PENDING_COOKIE);
   const pending = pendingId ? await ctx.store.getPending(pendingId) : null;
   if (!pending || !cookie || !safeEqual(cookie, pendingId)) {
-    sendHtml(res, 400, messagePage('Session expired', 'The sign-in session expired. Start the connection again from your MCP client.'));
+    renderPage(ctx, res, 400, messagePage('Session expired', 'The sign-in session expired. Start the connection again from your MCP client.'));
     return;
   }
 
@@ -219,7 +233,7 @@ async function handleDecision(req: IncomingMessage, res: ServerResponse, ctx: OA
 
   const account = pending.accounts.find((item) => item.id === params.get('account_id'));
   if (!account) {
-    sendHtml(res, 400, messagePage('Account required', 'Choose a ScrapeOps account to continue.'));
+    renderPage(ctx, res, 400, messagePage('Account required', 'Choose a ScrapeOps account to continue.'));
     return;
   }
 
@@ -445,7 +459,7 @@ async function handleUserRevoke(req: IncomingMessage, res: ServerResponse, ctx: 
   const email = params.get('email')?.trim() || '';
   const password = params.get('password') || '';
   if (!email || !password) {
-    sendHtml(res, 400, revokePage('Email and password are required.'));
+    renderPage(ctx, res, 400, revokePage('Email and password are required.'));
     return;
   }
   try {
@@ -455,11 +469,11 @@ async function handleUserRevoke(req: IncomingMessage, res: ServerResponse, ctx: 
       revoked += await ctx.store.revokeByAccount(account.id);
     }
     logger.info('oauth account access revoked', { accounts: accounts.length, tokens: revoked });
-    sendHtml(res, 200, messagePage('Access revoked', 'MCP clients can no longer use this ScrapeOps account until you connect again.'));
+    renderPage(ctx, res, 200, messagePage('Access revoked', 'MCP clients can no longer use this ScrapeOps account until you connect again.'));
   } catch (error) {
     const message = error instanceof LoginError ? error.message : 'ScrapeOps login failed.';
     logger.warn('oauth revoke login failed');
-    sendHtml(res, 401, revokePage(message));
+    renderPage(ctx, res, 401, revokePage(message));
   }
 }
 
@@ -506,7 +520,7 @@ async function denyAuthorize(
     redirect(res, callbackUrl(form.redirectUri, query));
     return;
   }
-  sendHtml(res, 400, messagePage('Authorization error', description));
+  renderPage(ctx, res, 400, messagePage('Authorization error', description));
 }
 
 function formFromParams(params: URLSearchParams): AuthorizeForm {
@@ -567,6 +581,16 @@ function corsHeaders(): Record<string, string> {
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'authorization, content-type, mcp-protocol-version',
   };
+}
+
+function renderPage(
+  ctx: OAuthContext,
+  res: ServerResponse,
+  status: number,
+  html: string,
+  extraHeaders: Record<string, string> = {}
+): void {
+  sendHtml(res, status, html, extraHeaders, ctx.baseUrl());
 }
 
 function methodNotAllowed(res: ServerResponse, allowHeader: string): boolean {

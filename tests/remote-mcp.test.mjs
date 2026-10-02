@@ -102,6 +102,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
 
       const login = await fetch(`${base}/authorize/login`, {
         method: 'POST',
+        redirect: 'manual',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           ...Object.fromEntries(authorize.searchParams),
@@ -109,12 +110,14 @@ describe('remote mcp', { concurrency: 1 }, () => {
           password: 'secret',
         }),
       });
-      assert.equal(login.status, 200);
-      const loginHtml = await login.text();
+      assert.equal(login.status, 302);
+      const cookie = login.headers.get('set-cookie').split(';')[0];
+      const consent = await fetch(`${base}/authorize/consent`, { headers: { cookie } });
+      assert.equal(consent.status, 200);
+      const loginHtml = await consent.text();
       const pendingId = loginHtml.match(/name="pending_id" value="([^"]+)"/)[1];
       const accountId = loginHtml.match(/name="account_id" value="([^"]+)"/)[1];
       assert.equal(loginHtml.includes('account-api-key'), false);
-      const cookie = login.headers.get('set-cookie').split(';')[0];
 
       const decision = await fetch(`${base}/authorize/decision`, {
         method: 'POST',
