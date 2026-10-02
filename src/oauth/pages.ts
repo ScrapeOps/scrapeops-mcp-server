@@ -7,8 +7,8 @@ const PAGE_STYLE = `
   p { line-height: 1.45; }
   label { display: block; font-size: 14px; margin: 14px 0 6px; }
   input[type="email"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; }
-  button { margin-top: 18px; background: #1c1915; color: #fff; border: 0; padding: 10px 16px; font-size: 15px; cursor: pointer; }
-  button.secondary { background: #fff; color: #1c1915; border: 1px solid #1c1915; margin-left: 8px; }
+  button, a.button { display: inline-block; margin-top: 18px; margin-right: 8px; background: #1c1915; color: #fff; border: 0; padding: 10px 16px; font-size: 15px; cursor: pointer; text-decoration: none; }
+  button.secondary, a.button.secondary { background: #fff; color: #1c1915; border: 1px solid #1c1915; }
   .error { background: #fff4f0; border: 1px solid #e7b2a4; padding: 10px; }
   .account { margin: 8px 0; }
 `;
@@ -81,30 +81,28 @@ export function consentPage(options: {
   email: string;
   accounts: { id: string; name: string }[];
 }): string {
-  const accounts =
-    options.accounts.length === 1
-      ? `<input type="hidden" name="account_id" value="${escapeHtml(options.accounts[0].id)}">
-         <p>Account: <strong>${escapeHtml(options.accounts[0].name)}</strong></p>`
-      : options.accounts
-          .map(
-            (account, index) => `<label class="account">
-              <input type="radio" name="account_id" value="${escapeHtml(account.id)}" ${index === 0 ? 'checked' : ''}>
-              ${escapeHtml(account.name)}
-            </label>`
-          )
-          .join('');
+  const approveLinks = options.accounts
+    .map(
+      (account) =>
+        `<a class="button" href="${decisionHref(options.pendingId, 'approve', account.id)}">${escapeHtml(options.accounts.length === 1 ? 'Approve' : `Approve ${account.name}`)}</a>`
+    )
+    .join('');
 
   return page(
     'Approve access',
     `<p><strong>${escapeHtml(options.clientName)}</strong> is requesting access to scrape using <strong>${escapeHtml(options.email)}</strong>.</p>
     <p>Requests use this account's ScrapeOps credits. The API key is not shared with the application.</p>
-    <form method="post" action="/authorize/decision">
-      <input type="hidden" name="pending_id" value="${escapeHtml(options.pendingId)}">
-      ${accounts}
-      <button type="submit" name="decision" value="approve">Approve</button>
-      <button class="secondary" type="submit" name="decision" value="deny">Deny</button>
-    </form>`
+    <p>
+      ${approveLinks}
+      <a class="button secondary" href="${decisionHref(options.pendingId, 'deny')}">Deny</a>
+    </p>`
   );
+}
+
+function decisionHref(pendingId: string, decision: 'approve' | 'deny', accountId?: string): string {
+  const query = new URLSearchParams({ pending_id: pendingId, decision });
+  if (accountId) query.set('account_id', accountId);
+  return escapeHtml(`/authorize/decision?${query.toString()}`);
 }
 
 export function messagePage(title: string, message: string): string {

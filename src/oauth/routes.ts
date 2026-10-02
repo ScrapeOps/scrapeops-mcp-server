@@ -110,7 +110,7 @@ export async function handleOAuthRequest(req: IncomingMessage, res: ServerRespon
       await handleConsentGet(req, res, ctx);
       return true;
     }
-    if (path === '/authorize/decision' && req.method === 'POST') {
+    if (path === '/authorize/decision' && (req.method === 'GET' || req.method === 'POST')) {
       await handleDecision(req, res, ctx);
       return true;
     }
@@ -215,7 +215,7 @@ async function handleConsentGet(req: IncomingMessage, res: ServerResponse, ctx: 
 
 async function handleDecision(req: IncomingMessage, res: ServerResponse, ctx: OAuthContext): Promise<void> {
   if (!allow(ctx, res, req, 'authorize')) return;
-  const params = await readParams(req);
+  const params = req.method === 'GET' ? new URL(req.url || '/', ctx.baseUrl()).searchParams : await readParams(req);
   const pendingId = params.get('pending_id') || '';
   const cookie = readCookie(req, PENDING_COOKIE);
   const pending = pendingId ? await ctx.store.getPending(pendingId) : null;
@@ -590,7 +590,7 @@ function renderPage(
   html: string,
   extraHeaders: Record<string, string> = {}
 ): void {
-  sendHtml(res, status, html, extraHeaders, ctx.baseUrl());
+  sendHtml(res, status, html, extraHeaders);
 }
 
 function methodNotAllowed(res: ServerResponse, allowHeader: string): boolean {

@@ -115,18 +115,14 @@ describe('remote mcp', { concurrency: 1 }, () => {
       const consent = await fetch(`${base}/authorize/consent`, { headers: { cookie } });
       assert.equal(consent.status, 200);
       const loginHtml = await consent.text();
-      const pendingId = loginHtml.match(/name="pending_id" value="([^"]+)"/)[1];
-      const accountId = loginHtml.match(/name="account_id" value="([^"]+)"/)[1];
       assert.equal(loginHtml.includes('account-api-key'), false);
+      assert.equal(loginHtml.includes('action="/authorize/decision"'), false);
+      const approveHref = loginHtml.match(/href="([^"]*decision=approve[^"]*)"/)[1].replaceAll('&amp;', '&');
+      const approveUrl = new URL(approveHref, base);
 
-      const decision = await fetch(`${base}/authorize/decision`, {
-        method: 'POST',
+      const decision = await fetch(approveUrl, {
         redirect: 'manual',
-        headers: {
-          'content-type': 'application/x-www-form-urlencoded',
-          cookie,
-        },
-        body: new URLSearchParams({ pending_id: pendingId, account_id: accountId, decision: 'approve' }),
+        headers: { cookie },
       });
       assert.equal(decision.status, 302);
       const location = new URL(decision.headers.get('location'));
