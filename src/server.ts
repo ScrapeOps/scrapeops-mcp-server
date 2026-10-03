@@ -581,6 +581,12 @@ const mapsWebSchema = z.object({
 
 server.addTool({
   name: 'maps_web',
+  annotations: {
+    title: 'Browse a webpage',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Browse and scrape any webpage with advanced proxy and rendering capabilities.
 
 **Best for:**
@@ -951,6 +957,12 @@ const extractDataSchema = z.object({
 
 server.addTool({
   name: 'extract_data',
+  annotations: {
+    title: 'Extract structured data',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `
 Extract structured data from webpages using auto-parsing or LLM-powered extraction.
 
@@ -1238,6 +1250,12 @@ const returnLinksSchema = z.object({
 
 server.addTool({
   name: 'return_links',
+  annotations: {
+    title: 'Extract page links',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Extract and categorize all URLs from a webpage.
 
 **Best for:**

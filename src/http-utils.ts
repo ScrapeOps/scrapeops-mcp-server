@@ -66,7 +66,7 @@ export function sendHtml(res: ServerResponse, status: number, html: string, extr
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
-    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action *; frame-ancestors 'none'; base-uri 'none'",
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action *; frame-ancestors 'none'; base-uri 'none'",
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     ...extraHeaders,

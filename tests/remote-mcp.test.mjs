@@ -117,6 +117,8 @@ describe('remote mcp', { concurrency: 1 }, () => {
       const loginHtml = await consent.text();
       assert.equal(loginHtml.includes('account-api-key'), false);
       assert.equal(loginHtml.includes('action="/authorize/decision"'), false);
+      assert.match(loginHtml, /Approving…/);
+      assert.match(loginHtml, /class="spinner"/);
       const approveHref = loginHtml.match(/href="([^"]*decision=approve[^"]*)"/)[1].replaceAll('&amp;', '&');
       const approveUrl = new URL(approveHref, base);
 
@@ -165,6 +167,11 @@ describe('remote mcp', { concurrency: 1 }, () => {
       const tools = await mcp(base, tokens.access_token, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
       const names = tools.message.result.tools.map((tool) => tool.name).sort();
       assert.deepEqual(names, ['extract_data', 'maps_web', 'return_links']);
+      for (const tool of tools.message.result.tools) {
+        assert.equal(typeof tool.annotations.title, 'string');
+        assert.equal(tool.annotations.readOnlyHint, true);
+        assert.equal(tool.annotations.destructiveHint, false);
+      }
 
       const call = await mcp(base, tokens.access_token, {
         jsonrpc: '2.0',

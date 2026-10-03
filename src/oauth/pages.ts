@@ -9,6 +9,13 @@ const PAGE_STYLE = `
   input[type="email"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; }
   button, a.button { display: inline-block; margin-top: 18px; margin-right: 8px; background: #1c1915; color: #fff; border: 0; padding: 10px 16px; font-size: 15px; cursor: pointer; text-decoration: none; }
   button.secondary, a.button.secondary { background: #fff; color: #1c1915; border: 1px solid #1c1915; }
+  a.button .busy { display: none; align-items: center; gap: 8px; }
+  a.button.is-loading, a.button:focus:not(:focus-visible) { cursor: progress; }
+  a.button.is-loading .idle, a.button:focus:not(:focus-visible) .idle { display: none; }
+  a.button.is-loading .busy, a.button:focus:not(:focus-visible) .busy { display: inline-flex; }
+  .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  a.button.secondary .spinner { border-color: rgba(28,25,21,0.25); border-top-color: #1c1915; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .error { background: #fff4f0; border: 1px solid #e7b2a4; padding: 10px; }
   .account { margin: 8px 0; }
 `;
@@ -27,6 +34,19 @@ function page(title: string, body: string): string {
     <h1>${escapeHtml(title)}</h1>
     ${body}
   </main>
+  <script>
+    document.querySelectorAll('a.button').forEach(function (link) {
+      link.addEventListener('click', function (event) {
+        if (document.documentElement.dataset.pending === '1') {
+          event.preventDefault();
+          return;
+        }
+        document.documentElement.dataset.pending = '1';
+        link.classList.add('is-loading');
+        link.setAttribute('aria-busy', 'true');
+      });
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -82,9 +102,12 @@ export function consentPage(options: {
   accounts: { id: string; name: string }[];
 }): string {
   const approveLinks = options.accounts
-    .map(
-      (account) =>
-        `<a class="button" href="${decisionHref(options.pendingId, 'approve', account.id)}">${escapeHtml(options.accounts.length === 1 ? 'Approve' : `Approve ${account.name}`)}</a>`
+    .map((account) =>
+      actionLink(
+        decisionHref(options.pendingId, 'approve', account.id),
+        options.accounts.length === 1 ? 'Approve' : `Approve ${account.name}`,
+        'Approving…'
+      )
     )
     .join('');
 
@@ -94,9 +117,14 @@ export function consentPage(options: {
     <p>Requests use this account's ScrapeOps credits. The API key is not shared with the application.</p>
     <p>
       ${approveLinks}
-      <a class="button secondary" href="${decisionHref(options.pendingId, 'deny')}">Deny</a>
+      ${actionLink(decisionHref(options.pendingId, 'deny'), 'Deny', 'Denying…', true)}
     </p>`
   );
+}
+
+function actionLink(href: string, label: string, busyLabel: string, secondary = false): string {
+  const className = secondary ? 'button secondary' : 'button';
+  return `<a class="${className}" href="${href}"><span class="idle">${escapeHtml(label)}</span><span class="busy"><span class="spinner" aria-hidden="true"></span>${escapeHtml(busyLabel)}</span></a>`;
 }
 
 function decisionHref(pendingId: string, decision: 'approve' | 'deny', accountId?: string): string {

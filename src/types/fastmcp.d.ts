@@ -52,6 +52,13 @@ declare module 'firecrawl-fastmcp' {
     addTool(tool: {
       name: string;
       description?: string;
+      annotations?: {
+        title?: string;
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        idempotentHint?: boolean;
+        openWorldHint?: boolean;
+      };
       parameters?: unknown;
       execute: ToolExecute<Session>;
     }): void;
