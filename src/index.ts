@@ -11,5 +11,5 @@ if (transport === 'http' || port) {
   await startHttpServer();
 } else {
   const { startStdioServer } = await import('./stdio.js');
-  await startStdioServer();
+  startStdioServer();
 }

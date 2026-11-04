@@ -1,16 +1,17 @@
 
-export type { Logger, TransportArgs, ToolContext, ToolExecute } from 'firecrawl-fastmcp';
+export interface Logger {
+  debug(...args: unknown[]): void;
+  error(...args: unknown[]): void;
+  info(...args: unknown[]): void;
+  log(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+}
 
 
 export interface SessionData {
   scrapeOpsApiKey?: string;
   accountId?: string;
   authType?: 'env' | 'api_key' | 'oauth';
-  [key: string]: unknown;
-}
-
-export interface AuthenticateRequest {
-  headers?: Record<string, string | string[] | undefined>;
 }
 
 export interface ScrapeOpsResponse {

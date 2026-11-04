@@ -26,6 +26,7 @@ globalThis.fetch = async (input, init) => {
 const { startHttpServer } = await import('../dist/http.js');
 const { MemoryOAuthStore, SqliteOAuthStore } = await import('../dist/oauth/store.js');
 const { encryptString, decryptString } = await import('../dist/oauth/crypto.js');
+const { sessionFromAuthInfo } = await import('../dist/server.js');
 
 describe('remote mcp', { concurrency: 1 }, () => {
   test('oauth discovery, connect, tool call, refresh, and revoke', async () => {
@@ -66,6 +67,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
       assert.equal(authorizationMetadata.token_endpoint, `${base}/token`);
       assert.equal(authorizationMetadata.registration_endpoint, `${base}/register`);
       assert.ok(authorizationMetadata.code_challenge_methods_supported.includes('S256'));
+      assert.equal(authorizationMetadata.authorization_response_iss_parameter_supported, true);
 
       const redirectUri = 'http://127.0.0.1:9/callback';
       const registration = await fetch(`${base}/register`, {
@@ -129,6 +131,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
       assert.equal(decision.status, 302);
       const location = new URL(decision.headers.get('location'));
       assert.equal(location.searchParams.get('state'), state);
+      assert.equal(location.searchParams.get('iss'), base);
       const code = location.searchParams.get('code');
       assert.ok(code);
 
@@ -250,6 +253,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
         },
       });
       assert.equal(initialize.response.status, 200, initialize.text);
+      assert.match(initialize.response.headers.get('content-type') || '', /^application\/json/);
 
       const listed = await mcp(server.baseUrl, undefined, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
       assert.equal(listed.response.status, 200, listed.text);
@@ -261,6 +265,150 @@ describe('remote mcp', { concurrency: 1 }, () => {
       });
       assert.equal(called.response.status, 200, called.text);
       assert.ok(capturedUrls.some((url) => url.includes('api_key=local-http-key')));
+
+      const initializeLatest = await mcp(server.baseUrl, undefined, {
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-11-25',
+          capabilities: {},
+          clientInfo: { name: 'local-http', version: '1.0.0' },
+        },
+      });
+      assert.equal(initializeLatest.message.result.protocolVersion, '2025-11-25');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('http serves 2026-07-28 without initialize', async () => {
+    const server = await startHttpServer({
+      port: 0,
+      host: '127.0.0.1',
+      oauthEnabled: false,
+      requireOauth: false,
+      envApiKey: 'modern-key',
+    });
+    try {
+      const discovered = await mcpModern(server.baseUrl, { method: 'server/discover' });
+      assert.equal(discovered.response.status, 200, discovered.text);
+      assert.ok(discovered.message.result.supportedVersions.includes('2026-07-28'));
+
+      const listed = await mcpModern(server.baseUrl, { method: 'tools/list' });
+      assert.equal(listed.response.status, 200, listed.text);
+      assert.equal(listed.message.result.resultType, 'complete');
+
+      const called = await mcpModern(server.baseUrl, {
+        method: 'tools/call',
+        name: 'maps_web',
+        params: { name: 'maps_web', arguments: { url: 'https://example.com' } },
+      });
+      assert.equal(called.response.status, 200, called.text);
+      assert.equal(called.response.headers.get('mcp-session-id'), null);
+      assert.ok(capturedUrls.some((url) => url.includes('api_key=modern-key')));
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('modern request without bearer token is challenged', async () => {
+    const server = await startHttpServer({
+      port: 0,
+      host: '127.0.0.1',
+      oauthEnabled: true,
+      requireOauth: true,
+      encryptionKey: randomBytes(32),
+      envApiKey: null,
+      store: new MemoryOAuthStore(),
+      login: async () => [],
+    });
+    try {
+      const challenged = await mcpModern(server.baseUrl, { method: 'tools/list' });
+      assert.equal(challenged.response.status, 401);
+      assert.match(challenged.response.headers.get('www-authenticate') || '', /resource_metadata="/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('preflight allows modern MCP headers', async () => {
+    const server = await startHttpServer({
+      port: 0,
+      host: '127.0.0.1',
+      oauthEnabled: false,
+      requireOauth: false,
+      envApiKey: 'preflight-key',
+    });
+    try {
+      const preflight = await originalFetch(`${server.baseUrl}/mcp`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'https://claude.ai',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'mcp-method, mcp-name, mcp-protocol-version, authorization',
+        },
+      });
+      assert.equal(preflight.status, 204);
+      assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://claude.ai');
+      const allowed = preflight.headers.get('access-control-allow-headers') || '';
+      for (const name of ['mcp-method', 'mcp-name', 'mcp-protocol-version', 'authorization']) {
+        assert.ok(allowed.includes(name), `${name} missing from ${allowed}`);
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('concurrent sessions keep their own api key', async () => {
+    const server = await startHttpServer({
+      port: 0,
+      host: '127.0.0.1',
+      oauthEnabled: false,
+      requireOauth: false,
+      envApiKey: null,
+    });
+    try {
+      const call = (apiKey) =>
+        mcpModern(server.baseUrl, {
+          apiKey,
+          method: 'tools/call',
+          name: 'maps_web',
+          params: { name: 'maps_web', arguments: { url: `https://example.com/${apiKey}` } },
+        });
+      const [a, b] = await Promise.all([call('key-a'), call('key-b')]);
+      assert.equal(a.response.status, 200, a.text);
+      assert.equal(b.response.status, 200, b.text);
+      assert.ok(capturedUrls.some((url) => url.includes('api_key=key-a') && url.includes('example.com%2Fkey-a')));
+      assert.ok(capturedUrls.some((url) => url.includes('api_key=key-b') && url.includes('example.com%2Fkey-b')));
+      assert.equal(capturedUrls.some((url) => url.includes('api_key=key-a') && url.includes('example.com%2Fkey-b')), false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('legacy sse paths return a migration message', async () => {
+    const server = await startHttpServer({
+      port: 0,
+      host: '127.0.0.1',
+      oauthEnabled: false,
+      requireOauth: false,
+      envApiKey: 'sse-key',
+    });
+    try {
+      const expected = {
+        error: 'endpoint_removed',
+        error_description:
+          'The HTTP+SSE transport (/sse, /messages) was removed in @scrapeops/mcp 2.0.0. Use Streamable HTTP at /mcp instead.',
+        mcp_endpoint: '/mcp',
+        docs: 'https://scrapeops.io/docs/mcp/overview/',
+      };
+      const sse = await originalFetch(`${server.baseUrl}/sse`);
+      assert.equal(sse.status, 410);
+      assert.deepEqual(await sse.json(), expected);
+      const messages = await originalFetch(`${server.baseUrl}/messages`, { method: 'POST', body: '{}' });
+      assert.equal(messages.status, 410);
+      assert.deepEqual(await messages.json(), expected);
     } finally {
       await server.close();
     }
@@ -318,6 +466,50 @@ describe('remote mcp', { concurrency: 1 }, () => {
     }
   });
 
+  test('stdio answers server/discover for 2026-07-28', async () => {
+    const child = spawnStdio('stdio-key');
+    try {
+      child.write({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: modernMeta('stdio-modern') } });
+      const discovered = await child.waitFor((message) => message.id === 1);
+      assert.ok(discovered.result.supportedVersions.includes('2026-07-28'), JSON.stringify(discovered));
+      assert.equal(discovered.result.resultType, 'complete');
+
+      child.write({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: modernMeta('stdio-modern') } });
+      const listed = await child.waitFor((message) => message.id === 2);
+      assert.deepEqual(listed.result.tools.map((tool) => tool.name).sort(), ['extract_data', 'maps_web', 'return_links']);
+      assert.equal(typeof listed.result.ttlMs, 'number');
+      assert.ok(['public', 'private'].includes(listed.result.cacheScope));
+    } catch (error) {
+      assert.fail(`${error instanceof Error ? error.message : error}\n${child.stderr()}`);
+    } finally {
+      child.kill();
+    }
+  });
+
+  test('http sessions never fall back to the operator api key', async () => {
+    const previous = process.env.SCRAPEOPS_API_KEY;
+    process.env.SCRAPEOPS_API_KEY = 'operator-key';
+    const server = await startHttpServer({
+      port: 0,
+      host: '127.0.0.1',
+      oauthEnabled: false,
+      requireOauth: false,
+      envApiKey: null,
+    });
+    try {
+      assert.throws(() => sessionFromAuthInfo(undefined), /authenticated/);
+      const session = sessionFromAuthInfo({ token: 'caller-key', clientId: 'c', scopes: ['scrape'], extra: { authType: 'api_key' } });
+      assert.equal(session.scrapeOpsApiKey, 'caller-key');
+
+      const listed = await mcp(server.baseUrl, undefined, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+      assert.equal(listed.response.status, 401, listed.text);
+    } finally {
+      await server.close();
+      if (previous === undefined) delete process.env.SCRAPEOPS_API_KEY;
+      else process.env.SCRAPEOPS_API_KEY = previous;
+    }
+  });
+
   test('sqlite store revokes an account without keeping plaintext api keys', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'scrapeops-mcp-'));
     const store = new SqliteOAuthStore(join(directory, 'oauth.sqlite'));
@@ -357,6 +549,29 @@ async function mcp(base, token, body) {
   return { response, text, message: text ? parseMcp(text, response.headers.get('content-type') || '') : null };
 }
 
+let modernId = 1000;
+
+async function mcpModern(base, { token, apiKey, method, params = {}, name }) {
+  const headers = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    'mcp-method': method,
+    'mcp-protocol-version': '2026-07-28',
+  };
+  if (name) headers['mcp-name'] = name;
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (apiKey) headers['scrapeops-api-key'] = apiKey;
+  const body = {
+    jsonrpc: '2.0',
+    id: modernId++,
+    method,
+    params: { ...params, _meta: modernMeta('http-modern') },
+  };
+  const response = await originalFetch(`${base}/mcp`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const text = await response.text();
+  return { response, text, message: text ? parseMcp(text, response.headers.get('content-type') || '') : null };
+}
+
 function parseMcp(text, contentType) {
   if (contentType.includes('text/event-stream')) {
     const data = text
@@ -366,6 +581,45 @@ function parseMcp(text, contentType) {
     return data.find((message) => message.id !== undefined) ?? data.at(-1);
   }
   return JSON.parse(text);
+}
+
+function modernMeta(clientName) {
+  return {
+    'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+    'io.modelcontextprotocol/clientCapabilities': {},
+    'io.modelcontextprotocol/clientInfo': { name: clientName, version: '1.0.0' },
+  };
+}
+
+function spawnStdio(apiKey) {
+  const env = { ...process.env };
+  delete env.PORT;
+  delete env.MCP_TRANSPORT;
+  delete env.OAUTH_ENABLED;
+  delete env.REQUIRE_OAUTH;
+  env.SCRAPEOPS_API_KEY = apiKey;
+
+  const child = spawn(process.execPath, ['dist/index.js'], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const messages = [];
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+    const lines = stdout.split('\n');
+    stdout = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim()) messages.push(JSON.parse(line));
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  return {
+    write: (message) => child.stdin.write(`${JSON.stringify(message)}\n`),
+    waitFor: (predicate) => waitForMessage(messages, predicate),
+    stderr: () => stderr,
+    kill: () => child.kill(),
+  };
 }
 
 function waitForMessage(messages, predicate) {

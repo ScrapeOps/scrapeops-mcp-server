@@ -4,6 +4,7 @@ import {
   clientAddress,
   contentType,
   HttpError,
+  MCP_CORS_ALLOW_HEADERS,
   parseFormBody,
   readBody,
   readCookie,
@@ -227,7 +228,7 @@ async function handleDecision(req: IncomingMessage, res: ServerResponse, ctx: OA
   const decision = params.get('decision');
   if (decision !== 'approve') {
     await ctx.store.deletePending(pending.id);
-    redirect(res, callbackUrl(pending.redirectUri, { error: 'access_denied', state: pending.state, error_description: 'The user denied the request.' }));
+    redirect(res, callbackUrl(ctx, pending.redirectUri, { error: 'access_denied', state: pending.state, error_description: 'The user denied the request.' }));
     return;
   }
 
@@ -253,7 +254,7 @@ async function handleDecision(req: IncomingMessage, res: ServerResponse, ctx: OA
   await ctx.store.deletePending(pending.id);
   logger.info('oauth authorization approved', { accountId: account.id, clientId: pending.clientId });
   res.setHeader('set-cookie', `${PENDING_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
-  redirect(res, callbackUrl(pending.redirectUri, { code, state: pending.state }));
+  redirect(res, callbackUrl(ctx, pending.redirectUri, { code, state: pending.state }));
 }
 
 async function handleToken(req: IncomingMessage, res: ServerResponse, ctx: OAuthContext): Promise<void> {
@@ -517,7 +518,7 @@ async function denyAuthorize(
   if (client && form.redirectUri && redirectUriMatches(client.redirectUris, form.redirectUri)) {
     const query: Record<string, string> = { error, error_description: description };
     if (form.state) query.state = form.state;
-    redirect(res, callbackUrl(form.redirectUri, query));
+    redirect(res, callbackUrl(ctx, form.redirectUri, query));
     return;
   }
   renderPage(ctx, res, 400, messagePage('Authorization error', description));
@@ -553,9 +554,11 @@ function allow(ctx: OAuthContext, res: ServerResponse, req: IncomingMessage, buc
   return false;
 }
 
-function callbackUrl(redirectUri: string, query: Record<string, string>): string {
+/** Every authorization response carries `iss` so clients can detect mix-up attacks (RFC 9207). */
+function callbackUrl(ctx: OAuthContext, redirectUri: string, query: Record<string, string>): string {
   const url = new URL(redirectUri);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  url.searchParams.set('iss', ctx.baseUrl());
   return url.toString();
 }
 
@@ -579,7 +582,7 @@ function corsHeaders(): Record<string, string> {
   return {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'authorization, content-type, mcp-protocol-version',
+    'access-control-allow-headers': MCP_CORS_ALLOW_HEADERS,
   };
 }
 

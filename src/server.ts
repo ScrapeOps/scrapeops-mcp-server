@@ -1,6 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
-import type { IncomingHttpHeaders } from 'node:http';
-import { FastMCP } from 'firecrawl-fastmcp';
+import { McpServer, type AuthInfo, type ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type {
   Logger,
@@ -16,7 +14,7 @@ import type {
   ErrorResponse,
 } from './types/index.js';
 
-export const SERVER_VERSION = '1.1.0';
+export const SERVER_VERSION = '2.0.0';
 
 
 const ADVANCED_PARAMS = [
@@ -87,82 +85,71 @@ class ConsoleLogger implements Logger {
   }
 }
 
-export interface CreateServerOptions {
-  /**
-   * stdio reads SCRAPEOPS_API_KEY from the environment.
-   * internal-http trusts only the proxy-injected headers below.
-   */
-  mode: 'stdio' | 'internal-http';
-  /** Shared secret so only this process can call the internal HTTP server. */
-  internalAuthSecret?: string;
+const consoleLogger = new ConsoleLogger();
+
+/** Stdio runs as the local user, so the API key comes from the environment. */
+export function envSession(): SessionData {
+  return { scrapeOpsApiKey: process.env.SCRAPEOPS_API_KEY, authType: 'env' };
 }
 
-function headerValue(
-  headers: IncomingHttpHeaders | undefined,
-  name: string
-): string | undefined {
-  const value = headers?.[name];
-  if (Array.isArray(value)) return value[0];
-  return value;
+/**
+ * HTTP passes the authenticated caller through `AuthInfo`: the ScrapeOps API
+ * key in `token`, account and auth type in `extra`. A request without it is
+ * refused rather than served with the operator's key.
+ */
+export function sessionFromAuthInfo(authInfo: AuthInfo | undefined): SessionData {
+  if (!authInfo?.token) {
+    throw new Error('MCP HTTP request reached the server without an authenticated caller');
+  }
+  const extra = authInfo.extra ?? {};
+  return {
+    scrapeOpsApiKey: authInfo.token,
+    accountId: typeof extra.accountId === 'string' && extra.accountId ? extra.accountId : undefined,
+    authType: extra.authType === 'api_key' ? 'api_key' : 'oauth',
+  };
 }
 
-function secretsMatch(expected: string | undefined, presented: string | undefined): boolean {
-  if (!expected || !presented) return false;
-  const left = Buffer.from(expected);
-  const right = Buffer.from(presented);
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
-}
-
-export function createScrapeOpsServer(
-  options: CreateServerOptions
-): FastMCP<SessionData> {
-  const server = new FastMCP<SessionData>({
-    name: 'scrapeops-mcp',
-    version: SERVER_VERSION,
-    logger: new ConsoleLogger(),
-    roots: { enabled: false },
-    authenticate: async (req?: { headers?: IncomingHttpHeaders }): Promise<SessionData> => {
-      if (options.mode === 'stdio') {
-        return {
-          scrapeOpsApiKey: process.env.SCRAPEOPS_API_KEY,
-          authType: 'env',
-        };
-      }
-
-      const presentedSecret = headerValue(req?.headers, 'x-scrapeops-internal-auth');
-      const apiKey = headerValue(req?.headers, 'x-scrapeops-internal-api-key');
-      if (!secretsMatch(options.internalAuthSecret, presentedSecret) || !apiKey) {
-        throw new Response('Unauthorized', {
-          status: 401,
-          statusText: 'Unauthorized',
-        });
-      }
-
-      const authTypeHeader = headerValue(req?.headers, 'x-scrapeops-auth-type');
-      return {
-        scrapeOpsApiKey: apiKey,
-        accountId: headerValue(req?.headers, 'x-scrapeops-account-id'),
-        authType: authTypeHeader === 'api_key' ? 'api_key' : 'oauth',
-      };
-    },
-    health: {
-      enabled: false,
-    },
-  });
-
-  registerTools(server);
+/** Builds a server bound to one caller; HTTP creates one per request. */
+export function createScrapeOpsServer(session: SessionData): McpServer {
+  const server = new McpServer({ name: 'scrapeops-mcp', version: SERVER_VERSION });
+  registerTools(server, session);
   return server;
 }
 
-function registerTools(server: FastMCP<SessionData>): void {
+/** Registers one tool on the SDK server; execute returns plain text wrapped as MCP content. */
+function registerScrapeOpsTool(
+  mcpServer: McpServer,
+  session: SessionData,
+  tool: {
+    name: string;
+    description: string;
+    annotations: ToolAnnotations & { title: string };
+    parameters: z.ZodObject;
+    execute: (args: unknown, context: { session: SessionData; log: Logger }) => Promise<string>;
+  }
+): void {
+  mcpServer.registerTool(
+    tool.name,
+    {
+      title: tool.annotations.title,
+      description: tool.description,
+      inputSchema: tool.parameters,
+      annotations: tool.annotations,
+    },
+    async (args: unknown) => {
+      const text = await tool.execute(args, { session, log: consoleLogger });
+      return { content: [{ type: 'text' as const, text }] };
+    }
+  );
+}
 
+function registerTools(mcpServer: McpServer, session: SessionData): void {
 // ============================================================================
 // API Client
 // ============================================================================
 
-function getApiKey(session?: SessionData): string {
-  const apiKey = session?.scrapeOpsApiKey || process.env.SCRAPEOPS_API_KEY;
+function getApiKey(activeSession?: SessionData): string {
+  const apiKey = activeSession?.scrapeOpsApiKey;
   if (!apiKey) {
     throw new Error('API key is required. Set SCRAPEOPS_API_KEY environment variable.');
   }
@@ -579,7 +566,7 @@ const mapsWebSchema = z.object({
     .describe('Maximum credits to spend on this request. Only works with optimize_request: true. Helps control costs by setting a credit limit'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'maps_web',
   annotations: {
     title: 'Browse a webpage',
@@ -955,7 +942,7 @@ const extractDataSchema = z.object({
     .describe('Maximum credits allowed for the request'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'extract_data',
   annotations: {
     title: 'Extract structured data',
@@ -1248,7 +1235,7 @@ const returnLinksSchema = z.object({
     .describe('Maximum credits allowed for the request'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'return_links',
   annotations: {
     title: 'Extract page links',

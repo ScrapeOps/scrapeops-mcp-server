@@ -2,6 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const MAX_BODY_BYTES = 1_000_000;
 
+/** Request headers browsers may send cross-origin to /mcp (MCP 2026-07-28 adds mcp-method and mcp-name). */
+export const MCP_CORS_ALLOW_HEADERS =
+  'authorization, content-type, mcp-protocol-version, mcp-method, mcp-name, scrapeops-api-key';
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
