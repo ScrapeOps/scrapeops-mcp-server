@@ -12,6 +12,8 @@ A Model Context Protocol (MCP) server that exposes the full capabilities of the 
 - ⚡ **JavaScript Rendering** - Full headless browser capabilities
 - 📊 **Structured Extraction** - LLM-powered data extraction with schemas
 - 🔄 **Auto-Extract** - Domain-specific parsers for popular sites
+- 🔗 **Link Extraction** - Discover page and asset URLs from any webpage
+- 🧭 **Scraping Analysis** - Difficulty scoring, anti-bot detection, JS rendering checks, tech stack, CSS selector stability, legality, page-type classification, data sources, API endpoints, and schema generation
 
 ## Installation
 
@@ -265,12 +267,14 @@ docker run --rm -p 8080:8080 \
 Before submitting the Claude connector, confirm with a deployed server:
 
 1. `https://mcp.scrapeops.io/mcp` is accepted as a remote MCP URL.
-2. Claude discovers `maps_web`, `extract_data`, and `return_links`.
+2. Claude discovers the proxy tools (`maps_web`, `extract_data`, `return_links`) and the analysis tools listed below.
 3. Connect opens the ScrapeOps sign-in page.
 4. After approval, a tool call is billed to the signed-in account.
 5. Revoking access from Claude, or at `/oauth/revoke-access`, makes the next call return `401`.
 
 ## Available Tools
+
+### Proxy & extraction tools
 
 ### Tool 1: `maps_web`
 
@@ -350,6 +354,171 @@ Structured data extraction using auto-parsing or LLM-powered extraction.
 }
 ```
 
+### Tool 3: `return_links`
+
+Extract and categorize URLs from a webpage into **pages** (navigational HTML links) and **assets** (images, scripts, stylesheets, media, embeds). Relative URLs are absolutized and duplicates removed.
+
+**Usage Examples:**
+
+```json
+{
+  "name": "return_links",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+
+{
+  "name": "return_links",
+  "arguments": {
+    "url": "https://protected-site.com",
+    "bypass_level": "generic_level_1"
+  }
+}
+```
+
+### Scraping analysis tools
+
+These tools help plan a scrape before spending credits on heavy proxy/bypass options. Several call the ScrapeOps parser / web-analyzer service in addition to the Proxy API.
+
+### Tool 4: `analyze_scraping_difficulty`
+
+Score how hard a URL is to scrape (1–5), including anti-bot signals, JS framework needs, CSS selector stability, rate limiting, bandwidth, and residential-IP guidance.
+
+```json
+{
+  "name": "analyze_scraping_difficulty",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+```
+
+### Tool 5: `check_js_rendering`
+
+Compare a basic fetch vs a JS-rendered fetch to decide whether rendering is required, and report missing content / SPA indicators / frameworks.
+
+```json
+{
+  "name": "check_js_rendering",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+```
+
+### Tool 6: `detect_anti_bots`
+
+Detect anti-bot systems (Cloudflare, DataDome, PerimeterX/HUMAN, Incapsula, Akamai, AWS WAF, Sucuri, reCAPTCHA, hCaptcha, Kasada, Shape/F5) with confidence, evidence, and recommended `maps_web` bypass settings.
+
+```json
+{
+  "name": "detect_anti_bots",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+```
+
+### Tool 7: `check_scraping_legality`
+
+Informational robots.txt / Terms of Service analysis: allowed paths, crawl delays, scraping-related clauses, risk level, and known lawsuit notes. Not legal advice.
+
+```json
+{
+  "name": "check_scraping_legality",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+```
+
+### Tool 8: `classify_page_type`
+
+Classify a page (product, SERP, job, article, company, real estate, captcha/ban, etc.) with reasoning and confidence so you can pick the right extraction schema.
+
+```json
+{
+  "name": "classify_page_type",
+  "arguments": {
+    "url": "https://shop.example.com/product/123"
+  }
+}
+```
+
+### Tool 9: `identify_data_sources`
+
+Find where target data lives: static HTML, embedded JSON (`JSON-LD`, `__NEXT_DATA__`, etc.), or network/XHR responses — with extracted items and scraping recommendations.
+
+```json
+{
+  "name": "identify_data_sources",
+  "arguments": {
+    "url": "https://example.com/products/blue-widget"
+  }
+}
+```
+
+### Tool 10: `analyze_api_endpoints`
+
+From JS-rendered network capture, identify which XHR/fetch calls return primary data and document method, params, auth hints, and pagination so browser scraping can be replaced with API scraping when possible.
+
+```json
+{
+  "name": "analyze_api_endpoints",
+  "arguments": {
+    "url": "https://example.com/products"
+  }
+}
+```
+
+### Tool 11: `detect_tech_stack`
+
+Detect frameworks, libraries, CMS, CSS, ecommerce, analytics, and payment tooling, plus rendering mode (SSR/CSR/SSG) and scraping implications.
+
+```json
+{
+  "name": "detect_tech_stack",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+```
+
+### Tool 12: `check_css_selectors`
+
+Fetch the page multiple times with JS rendering and classify selectors as **stable**, **dynamic**, or **obfuscated**, with recommended selector strategies.
+
+```json
+{
+  "name": "check_css_selectors",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+```
+
+### Tool 13: `generate_data_schema`
+
+Classify the page (or accept a `page_type` override) and return a barebones JSON schema from the ScrapeOps schema library for use with `extract_data` LLM mode.
+
+```json
+{
+  "name": "generate_data_schema",
+  "arguments": {
+    "url": "https://shop.example.com/product/123"
+  }
+}
+
+{
+  "name": "generate_data_schema",
+  "arguments": {
+    "url": "https://shop.example.com/product/123",
+    "page_type": "product_page"
+  }
+}
+```
+
 ## User Stories
 
 ### The Visual Debugger
@@ -360,6 +529,9 @@ Structured data extraction using auto-parsing or LLM-powered extraction.
 
 ### The Bypass Expert
 > "The AI tries to access a site and gets blocked. It automatically retries the request using `maps_web` with `bypass_level='generic_level_3'` and `residential=true` to overcome the blockage."
+
+### The Scraping Planner
+> "Before burning credits on a hard target, the AI runs `analyze_scraping_difficulty`, `detect_anti_bots`, and `check_js_rendering`. It then picks bypass/render settings (or switches to API scraping via `analyze_api_endpoints`) and generates a schema with `generate_data_schema` before calling `extract_data`."
 
 ## System Configuration
 

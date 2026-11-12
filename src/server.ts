@@ -1800,6 +1800,12 @@ const analyzeDifficultySchema = z.object({
 
 server.addTool({
   name: 'analyze_scraping_difficulty',
+  annotations: {
+    title: 'Analyze scraping difficulty',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Analyze a website URL and determine how difficult it is to scrape.
 
 Returns a difficulty score (1-5), detected anti-bot protections, JavaScript framework requirements, and actionable recommendations.
@@ -1973,6 +1979,12 @@ const checkJsRenderingSchema = z.object({
 
 server.addTool({
   name: 'check_js_rendering',
+  annotations: {
+    title: 'Check JS rendering requirement',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Check whether a webpage requires JavaScript rendering to access its target data.
 
 Makes two requests — one without JS rendering and one with — then compares the results to determine if rendering is needed. Reports what data is missing from the non-rendered version.
@@ -2127,6 +2139,12 @@ const detectAntiBotsSchema = z.object({
 
 server.addTool({
   name: 'detect_anti_bots',
+  annotations: {
+    title: 'Detect anti-bot protections',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Detect anti-bot protection systems on a website.
 
 Makes a basic request and analyzes the response for known anti-bot signatures.
@@ -2252,6 +2270,12 @@ const checkLegalitySchema = z.object({
 
 server.addTool({
   name: 'check_scraping_legality',
+  annotations: {
+    title: 'Check scraping legality',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Check the legal aspects of scraping a website by analyzing its robots.txt and Terms of Service.
 
 Fetches and parses robots.txt, finds Terms of Service / legal pages, and provides a comprehensive legal analysis.
@@ -2476,6 +2500,12 @@ const classifyPageTypeSchema = z.object({
 
 server.addTool({
   name: 'classify_page_type',
+  annotations: {
+    title: 'Classify page type',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Classify a webpage into a specific page type to help decide the optimal parsing strategy.
 
 Fetches the page HTML and uses LLM-powered analysis to determine the page type from URL patterns, structured data (LD+JSON, meta tags), and page content.
@@ -2716,6 +2746,12 @@ const identifyDataSourcesSchema = z.object({
 
 server.addTool({
   name: 'identify_data_sources',
+  annotations: {
+    title: 'Identify data sources',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Identify where the key data is sourced from on a webpage.
 
 Fetches the page with both simple HTTP and JavaScript rendering (capturing XHR/API calls), then uses LLM analysis to determine whether target data comes from static HTML, embedded JSON (e.g. JSON-LD, Next.js data), API/XHR calls, or inline JavaScript variables.
@@ -3108,6 +3144,12 @@ const analyzeApiEndpointsSchema = z.object({
 
 server.addTool({
   name: 'analyze_api_endpoints',
+  annotations: {
+    title: 'Analyze API endpoints',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Analyze captured network requests to identify which return primary/target data and how to use them for API scraping (replace browser scraping with API scraping when possible).
 
 Uses the web-analyzer API to load the page with JavaScript rendering, capture XHR/fetch requests, then:
@@ -3237,6 +3279,12 @@ const detectTechStackSchema = z.object({
 
 server.addTool({
   name: 'detect_tech_stack',
+  annotations: {
+    title: 'Detect tech stack',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Detect the technology stack used to build a webpage.
 
 Analyzes both the page HTML and network requests to identify frameworks, libraries, CMS platforms, CSS frameworks, ecommerce platforms, analytics tools, payment processors, and build tools.
@@ -3523,6 +3571,12 @@ const checkCssSelectorsSchema = z.object({
 
 server.addTool({
   name: 'check_css_selectors',
+  annotations: {
+    title: 'Check CSS selector stability',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Analyze the stability of CSS selectors on a webpage to determine if they are static, auto-generated, or obfuscated.
 
 Makes multiple JS-rendered requests to the same URL and compares the CSS classes, IDs, and data attributes across responses. This reveals whether selectors change between page loads (dynamic/auto-generated) or remain consistent (stable).
@@ -3796,6 +3850,12 @@ const generateDataSchemaSchema = z.object({
 
 server.addTool({
   name: 'generate_data_schema',
+  annotations: {
+    title: 'Generate data schema',
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description: `Generate a clean JSON data schema for extracting structured data from a webpage.
 
 Automatically classifies the page type (or accepts a manual override), then returns the appropriate barebones data schema with field names, types, required/optional status, and recommended null values.
