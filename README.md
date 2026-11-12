@@ -109,13 +109,15 @@ Add this to your `claude_desktop_config.json`:
 
 for development environment
 
+Replace `/ABSOLUTE/PATH/TO/scrapeops-mcp-server/dist/index.js` with the absolute path to your local built entry point (run `npm run build` first).
+
 ```json
 {
   "mcpServers": {
     "scrapeops-mcp": {
       "command": "node",
       "args": [
-        "/Users/macbook/Documents/ScrapeOps/scrapeops-mcp-server/dist/index.js" 
+        "/ABSOLUTE/PATH/TO/scrapeops-mcp-server/dist/index.js"
       ],
       "env": {
         "SCRAPEOPS_API_KEY": "SCRAPEOPS_API_KEY"
@@ -242,9 +244,13 @@ The remote server is a separate Node process from the ScrapeOps frontend. Termin
 
 ```bash
 docker build -t scrapeops-mcp .
+
+# Generate once and reuse across restarts/deployments (do not regenerate each run).
+export TOKEN_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+
 docker run --rm -p 8080:8080 \
   -e PUBLIC_BASE_URL=https://mcp.scrapeops.io \
-  -e TOKEN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e TOKEN_ENCRYPTION_KEY="$TOKEN_ENCRYPTION_KEY" \
   -e SENTRY_DSN=https://key@o0.ingest.sentry.io/0 \
   -v scrapeops-mcp-data:/data \
   scrapeops-mcp
