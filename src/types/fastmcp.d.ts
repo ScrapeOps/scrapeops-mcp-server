@@ -13,7 +13,13 @@ declare module 'firecrawl-fastmcp' {
     | { transportType: 'stdio' }
     | {
         transportType: 'httpStream';
-        httpStream: { port: number; host?: string; stateless?: boolean };
+        httpStream: {
+          port: number;
+          host?: string;
+          stateless?: boolean;
+          endpoint?: `/${string}`;
+          enableJsonResponse?: boolean;
+        };
       };
 
   export interface ToolContext<Session = unknown> {
@@ -46,11 +52,19 @@ declare module 'firecrawl-fastmcp' {
     addTool(tool: {
       name: string;
       description?: string;
+      annotations?: {
+        title?: string;
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        idempotentHint?: boolean;
+        openWorldHint?: boolean;
+      };
       parameters?: unknown;
       execute: ToolExecute<Session>;
     }): void;
 
     start(args?: TransportArgs): Promise<void>;
+    stop(): Promise<void>;
   }
 }
 

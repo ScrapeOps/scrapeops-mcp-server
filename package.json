@@ -1,6 +1,6 @@
 {
   "name": "@scrapeops/mcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "MCP server for ScrapeOps Proxy API integration. Features web browsing, anti-bot bypass, JavaScript rendering, screenshots, and LLM-powered structured data extraction for AI agents.",
   "type": "module",
   "mcpName": "io.github.scrapeops/scrapeops-mcp-server",
@@ -15,10 +15,10 @@
   },
   "scripts": {
     "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "start": "node dist/index.js",
-    "start:sse": "node dist/index.js",
-    "start:cloud": "CLOUD_SERVICE=true node dist/index.js",
+    "start:http": "MCP_TRANSPORT=http node dist/index.js",
+    "start:stdio": "node dist/index.js",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write .",

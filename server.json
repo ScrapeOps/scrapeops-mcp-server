@@ -3,7 +3,7 @@
   "name": "io.github.scrapeops/scrapeops-mcp-server",
   "title": "ScrapeOps MCP Server",
   "description": "MCP server for ScrapeOps Proxy API - web browsing, anti-bot bypass, JavaScript rendering, screenshots, and LLM-powered data extraction for AI agents.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "active",
   "repository": {
     "url": "https://github.com/scrapeops/scrapeops-mcp-server.git",
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "scrapeops-mcp",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -26,6 +26,12 @@
           "name": "SCRAPEOPS_API_KEY"
         }
       ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.scrapeops.io/mcp"
     }
   ]
 }
