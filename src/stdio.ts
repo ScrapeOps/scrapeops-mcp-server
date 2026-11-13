@@ -1,6 +1,9 @@
-import { createScrapeOpsServer } from './server.js';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { reportError } from './monitoring.js';
+import { createScrapeOpsServer, envSession } from './server.js';
 
-export async function startStdioServer(): Promise<void> {
-  const server = createScrapeOpsServer({ mode: 'stdio' });
-  await server.start({ transportType: 'stdio' });
+export function startStdioServer(): void {
+  serveStdio(() => createScrapeOpsServer(envSession()), {
+    onerror: (error) => reportError(error, { path: 'stdio' }),
+  });
 }

@@ -10,6 +10,7 @@ export interface OAuthMetadata {
   token_endpoint_auth_methods_supported: string[];
   scopes_supported: string[];
   revocation_endpoint_auth_methods_supported: string[];
+  authorization_response_iss_parameter_supported: boolean;
 }
 
 export interface ProtectedResourceMetadata {
@@ -33,6 +34,7 @@ export function authorizationServerMetadata(baseUrl: string): OAuthMetadata {
     token_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
     scopes_supported: ['scrape'],
     revocation_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
+    authorization_response_iss_parameter_supported: true,
   };
 }
 

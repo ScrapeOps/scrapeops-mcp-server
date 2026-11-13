@@ -1,10 +1,17 @@
 import dotenv from 'dotenv';
-import { randomBytes } from 'node:crypto';
 import http from 'node:http';
-import net from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { toNodeHandler, type NodeMcpRequestHandler } from '@modelcontextprotocol/node';
+import {
+  WebStandardStreamableHTTPServerTransport,
+  createMcpHandler,
+  isLegacyRequest,
+  type AuthInfo,
+  type LegacyHttpHandler,
+  type McpServerFactory,
+} from '@modelcontextprotocol/server';
 import { loadHttpConfig, type HttpConfig } from './config.js';
-import { clientAddress, isHttps, requestOrigin, sendJson } from './http-utils.js';
+import { MCP_CORS_ALLOW_HEADERS, clientAddress, isHttps, requestOrigin, sendEmpty, sendJson } from './http-utils.js';
 import { logger } from './logger.js';
 import { reportError } from './monitoring.js';
 import { handleOAuthRequest, resolveAccessToken, type OAuthContext } from './oauth/routes.js';
@@ -13,7 +20,7 @@ import { createScrapeOpsLogin, type ScrapeOpsLogin } from './oauth/scrapeops-log
 import { createOAuthStore } from './oauth/store.js';
 import type { OAuthStore } from './oauth/types.js';
 import { RATE_LIMITS, RateLimiter } from './rate-limit.js';
-import { createScrapeOpsServer } from './server.js';
+import { createScrapeOpsServer, sessionFromAuthInfo } from './server.js';
 
 dotenv.config({ debug: false, quiet: true });
 
@@ -53,19 +60,17 @@ export async function startHttpServer(options: StartHttpOptions = {}): Promise<R
     throw new Error('PORT must be a non-negative integer');
   }
 
-  const internalPort = await freePort();
-  const internalAuthSecret = randomBytes(32).toString('base64url');
-  const mcp = createScrapeOpsServer({ mode: 'internal-http', internalAuthSecret });
-  await mcp.start({
-    transportType: 'httpStream',
-    httpStream: {
-      port: internalPort,
-      host: '127.0.0.1',
-      endpoint: '/mcp',
-      stateless: true,
-      enableJsonResponse: true,
+  const onerror = (error: Error) => reportError(error, { path: '/mcp' });
+  const factory: McpServerFactory = (ctx) => createScrapeOpsServer(sessionFromAuthInfo(ctx.authInfo));
+  const mcp = createMcpHandler(factory, { legacy: 'reject', onerror });
+  const legacy = legacyJsonHandler(factory, onerror);
+  const mcpNode = toNodeHandler(
+    {
+      fetch: async (request, options) =>
+        (await isLegacyRequest(request)) ? legacy(request, options) : mcp.fetch(request, options),
     },
-  });
+    { onerror }
+  );
 
   const store = config.oauthEnabled ? createOAuthStore({ dataDir: config.dataDir, store: options.store }) : undefined;
   const login = options.login ?? createScrapeOpsLogin(config.backendUrl);
@@ -90,8 +95,7 @@ export async function startHttpServer(options: StartHttpOptions = {}): Promise<R
       baseUrl: () => baseUrl,
       oauth: oauthContext,
       rateLimiter,
-      internalPort,
-      internalAuthSecret,
+      mcpNode,
     }).catch((error: unknown) => {
       reportError(error, { path: req.url });
       if (!res.headersSent) {
@@ -114,10 +118,11 @@ export async function startHttpServer(options: StartHttpOptions = {}): Promise<R
     port,
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve, reject) => {
+      const closed = new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
-      await mcp.stop();
+      await mcp.close();
+      await closed;
     },
   };
 }
@@ -127,8 +132,7 @@ interface RouteState {
   baseUrl: () => string;
   oauth?: OAuthContext;
   rateLimiter: RateLimiter;
-  internalPort: number;
-  internalAuthSecret: string;
+  mcpNode: NodeMcpRequestHandler;
 }
 
 async function routeRequest(req: IncomingMessage, res: ServerResponse, state: RouteState): Promise<void> {
@@ -167,6 +171,17 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, state: Ro
     return;
   }
 
+  if (isRemovedSsePath(path)) {
+    sendJson(res, 410, {
+      error: 'endpoint_removed',
+      error_description:
+        'The HTTP+SSE transport (/sse, /messages) was removed in @scrapeops/mcp 2.0.0. Use Streamable HTTP at /mcp instead.',
+      mcp_endpoint: '/mcp',
+      docs: 'https://scrapeops.io/docs/mcp/overview/',
+    });
+    return;
+  }
+
   if (!isMcpPath(path)) {
     sendJson(res, 404, { error: 'not_found' });
     return;
@@ -178,8 +193,17 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, state: Ro
     return;
   }
 
+  const origin = requestOrigin(req);
+  res.setHeader('access-control-allow-origin', origin || '*');
+  res.setHeader('access-control-expose-headers', 'www-authenticate');
+  if (origin) res.setHeader('vary', 'origin');
+
   if (req.method === 'OPTIONS') {
-    proxyMcp(req, res, state, undefined);
+    sendEmpty(res, 204, {
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': MCP_CORS_ALLOW_HEADERS,
+      'access-control-max-age': '600',
+    });
     return;
   }
 
@@ -210,13 +234,14 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, state: Ro
     else if (res.statusCode >= 400) logger.warn('mcp request rejected', fields);
     else logger.info('mcp request', fields);
   });
-  proxyMcp(req, res, state, auth);
+  await serveMcp(req, res, state, auth);
 }
 
 interface AuthSuccess {
   ok: true;
   apiKey: string;
   accountId?: string;
+  clientId?: string;
   authType: 'oauth' | 'api_key';
 }
 
@@ -227,7 +252,13 @@ async function resolveAuth(req: IncomingMessage, state: RouteState): Promise<Aut
     if (!match || !state.oauth) return { ok: false, error: 'invalid' };
     const resolved = await resolveAccessToken(state.oauth.store, state.oauth.encryptionKey, match[1]);
     if (!resolved) return { ok: false, error: 'invalid' };
-    return { ok: true, apiKey: resolved.apiKey, accountId: resolved.accountId, authType: 'oauth' };
+    return {
+      ok: true,
+      apiKey: resolved.apiKey,
+      accountId: resolved.accountId,
+      clientId: resolved.clientId,
+      authType: 'oauth',
+    };
   }
 
   if (state.config.requireOauth) return { ok: false, error: 'missing' };
@@ -238,49 +269,48 @@ async function resolveAuth(req: IncomingMessage, state: RouteState): Promise<Aut
   return { ok: false, error: 'missing' };
 }
 
-function proxyMcp(
-  req: IncomingMessage,
-  res: ServerResponse,
-  state: RouteState,
-  auth: AuthSuccess | undefined
-): void {
-  const headers: http.OutgoingHttpHeaders = { ...req.headers };
-  delete headers['x-scrapeops-internal-auth'];
-  delete headers['x-scrapeops-internal-api-key'];
-  delete headers['x-scrapeops-account-id'];
-  delete headers['x-scrapeops-auth-type'];
-  if (auth) {
-    headers['x-scrapeops-internal-auth'] = state.internalAuthSecret;
-    headers['x-scrapeops-internal-api-key'] = auth.apiKey;
-    headers['x-scrapeops-account-id'] = auth.accountId || '';
-    headers['x-scrapeops-auth-type'] = auth.authType;
-  }
-  headers.host = `127.0.0.1:${state.internalPort}`;
+async function serveMcp(req: IncomingMessage, res: ServerResponse, state: RouteState, auth: AuthSuccess): Promise<void> {
+  const authInfo: AuthInfo = {
+    token: auth.apiKey,
+    clientId: auth.clientId ?? auth.authType,
+    scopes: ['scrape'],
+    extra: { accountId: auth.accountId, authType: auth.authType },
+  };
+  await state.mcpNode(Object.assign(req, { auth: authInfo }), res);
+}
 
-  const proxyReq = http.request(
-    {
-      hostname: '127.0.0.1',
-      port: state.internalPort,
-      path: req.url,
-      method: req.method,
-      headers,
-    },
-    (proxyRes) => {
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
-      proxyRes.pipe(res);
+/**
+ * Serves 2025-era requests statelessly with plain JSON bodies, matching the
+ * 1.x `enableJsonResponse` behaviour instead of the SDK's SSE default.
+ */
+function legacyJsonHandler(
+  factory: McpServerFactory,
+  onerror: (error: Error) => void
+): LegacyHttpHandler {
+  return async (request, options) => {
+    if (request.method !== 'POST') {
+      return Response.json(
+        { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Method not allowed.' } },
+        { status: 405, headers: { allow: 'POST, OPTIONS' } }
+      );
     }
-  );
-  proxyReq.on('error', (error) => {
-    reportError(error, { path: req.url, accountId: auth?.accountId });
-    if (!res.headersSent) {
-      sendJson(res, 502, {
-        jsonrpc: '2.0',
-        id: null,
-        error: { code: -32603, message: 'Bad gateway' },
+    const mcpServer = await factory({ era: 'legacy', authInfo: options?.authInfo, requestInfo: request });
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    try {
+      await mcpServer.connect(transport);
+      return await transport.handleRequest(request, { authInfo: options?.authInfo });
+    } catch (error) {
+      onerror(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    } finally {
+      void mcpServer.close().catch((error) => {
+        onerror(error instanceof Error ? error : new Error(String(error)));
       });
     }
-  });
-  req.pipe(proxyReq);
+  };
 }
 
 function unauthorized(res: ServerResponse, state: RouteState, error?: 'invalid_token'): void {
@@ -315,7 +345,12 @@ function applyOptions(config: HttpConfig, options: StartHttpOptions): HttpConfig
 }
 
 function isMcpPath(path: string): boolean {
-  return path === '/mcp' || path === '/sse' || path === '/messages' || path.startsWith('/messages?') || path.startsWith('/messages/');
+  return path === '/mcp';
+}
+
+/** Old HTTP+SSE transport paths removed in 2.0.0. */
+function isRemovedSsePath(path: string): boolean {
+  return path === '/sse' || path === '/messages' || path.startsWith('/messages/');
 }
 
 function hostAllowed(hostHeader: string | undefined, baseUrl: string): boolean {
@@ -362,18 +397,6 @@ function listen(server: http.Server, port: number, host: string): Promise<number
     server.listen(port, host, () => {
       const address = server.address();
       resolve(typeof address === 'object' && address ? address.port : port);
-    });
-  });
-}
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      server.close((error) => (error ? reject(error) : resolve(port)));
     });
   });
 }

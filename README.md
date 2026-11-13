@@ -80,7 +80,7 @@ for development environment
 {
     "mcpServers": {
         "@scrapeops/mcp": {
-        "url": "http://localhost:8080/sse",
+        "url": "http://localhost:8080/mcp",
         "headers": {
             "scrapeops-api-key": "SCRAPEOPS_API_KEY"
         }
@@ -184,7 +184,7 @@ You can run the same MCP server over HTTP instead of stdio. This is useful for d
 **1. Start the server:**
 
 ```bash
-# Set the port for HTTP/SSE mode (required for local server)
+# Set the port for HTTP mode (required for local server)
 export PORT=8080
 export SCRAPEOPS_API_KEY=your-api-key-here
 
@@ -194,7 +194,9 @@ npm start
 scrapeops-mcp
 ```
 
-The server exposes Streamable HTTP at `http://localhost:8080/mcp` (or the port specified by `PORT`). The legacy SSE endpoint remains available at `/sse`.
+The server exposes Streamable HTTP at `http://localhost:8080/mcp` (or the port specified by `PORT`). This is the only HTTP endpoint: the deprecated HTTP+SSE transport (`/sse`, `/messages`) was removed in 2.0.0.
+
+The server implements MCP protocol revision `2026-07-28` and still answers clients on `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`, over both stdio and HTTP. Over HTTP, 2025-era clients get a plain JSON body (`enableJsonResponse: true`); 2026-era clients may get JSON or `text/event-stream` depending on the exchange. Clients must still send `Accept: application/json, text/event-stream`. Invalid tool arguments come back as a tool result with `isError: true` instead of a JSON-RPC error.
 
 **Note:** If `PORT` is not set, the server runs in stdio mode (for use with `npx` in MCP clients like Cursor). Set `PORT` explicitly to run as an HTTP server.
 

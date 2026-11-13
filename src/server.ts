@@ -1,6 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
-import type { IncomingHttpHeaders } from 'node:http';
-import { FastMCP } from 'firecrawl-fastmcp';
+import { McpServer, type AuthInfo, type ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type {
   Logger,
@@ -19,7 +17,7 @@ import type {
   ApiEndpointAnalysis,
 } from './types/index.js';
 
-export const SERVER_VERSION = '1.1.0';
+export const SERVER_VERSION = '2.0.0';
 
 
 const ADVANCED_PARAMS = [
@@ -122,82 +120,71 @@ class ConsoleLogger implements Logger {
   }
 }
 
-export interface CreateServerOptions {
-  /**
-   * stdio reads SCRAPEOPS_API_KEY from the environment.
-   * internal-http trusts only the proxy-injected headers below.
-   */
-  mode: 'stdio' | 'internal-http';
-  /** Shared secret so only this process can call the internal HTTP server. */
-  internalAuthSecret?: string;
+const consoleLogger = new ConsoleLogger();
+
+/** Stdio runs as the local user, so the API key comes from the environment. */
+export function envSession(): SessionData {
+  return { scrapeOpsApiKey: process.env.SCRAPEOPS_API_KEY, authType: 'env' };
 }
 
-function headerValue(
-  headers: IncomingHttpHeaders | undefined,
-  name: string
-): string | undefined {
-  const value = headers?.[name];
-  if (Array.isArray(value)) return value[0];
-  return value;
+/**
+ * HTTP passes the authenticated caller through `AuthInfo`: the ScrapeOps API
+ * key in `token`, account and auth type in `extra`. A request without it is
+ * refused rather than served with the operator's key.
+ */
+export function sessionFromAuthInfo(authInfo: AuthInfo | undefined): SessionData {
+  if (!authInfo?.token) {
+    throw new Error('MCP HTTP request reached the server without an authenticated caller');
+  }
+  const extra = authInfo.extra ?? {};
+  return {
+    scrapeOpsApiKey: authInfo.token,
+    accountId: typeof extra.accountId === 'string' && extra.accountId ? extra.accountId : undefined,
+    authType: extra.authType === 'api_key' ? 'api_key' : 'oauth',
+  };
 }
 
-function secretsMatch(expected: string | undefined, presented: string | undefined): boolean {
-  if (!expected || !presented) return false;
-  const left = Buffer.from(expected);
-  const right = Buffer.from(presented);
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
-}
-
-export function createScrapeOpsServer(
-  options: CreateServerOptions
-): FastMCP<SessionData> {
-  const server = new FastMCP<SessionData>({
-    name: 'scrapeops-mcp',
-    version: SERVER_VERSION,
-    logger: new ConsoleLogger(),
-    roots: { enabled: false },
-    authenticate: async (req?: { headers?: IncomingHttpHeaders }): Promise<SessionData> => {
-      if (options.mode === 'stdio') {
-        return {
-          scrapeOpsApiKey: process.env.SCRAPEOPS_API_KEY,
-          authType: 'env',
-        };
-      }
-
-      const presentedSecret = headerValue(req?.headers, 'x-scrapeops-internal-auth');
-      const apiKey = headerValue(req?.headers, 'x-scrapeops-internal-api-key');
-      if (!secretsMatch(options.internalAuthSecret, presentedSecret) || !apiKey) {
-        throw new Response('Unauthorized', {
-          status: 401,
-          statusText: 'Unauthorized',
-        });
-      }
-
-      const authTypeHeader = headerValue(req?.headers, 'x-scrapeops-auth-type');
-      return {
-        scrapeOpsApiKey: apiKey,
-        accountId: headerValue(req?.headers, 'x-scrapeops-account-id'),
-        authType: authTypeHeader === 'api_key' ? 'api_key' : 'oauth',
-      };
-    },
-    health: {
-      enabled: false,
-    },
-  });
-
-  registerTools(server);
+/** Builds a server bound to one caller; HTTP creates one per request. */
+export function createScrapeOpsServer(session: SessionData): McpServer {
+  const server = new McpServer({ name: 'scrapeops-mcp', version: SERVER_VERSION });
+  registerTools(server, session);
   return server;
 }
 
-function registerTools(server: FastMCP<SessionData>): void {
+/** Registers one tool on the SDK server; execute returns plain text wrapped as MCP content. */
+function registerScrapeOpsTool(
+  mcpServer: McpServer,
+  session: SessionData,
+  tool: {
+    name: string;
+    description: string;
+    annotations: ToolAnnotations & { title: string };
+    parameters: z.ZodObject;
+    execute: (args: unknown, context: { session: SessionData; log: Logger }) => Promise<string>;
+  }
+): void {
+  mcpServer.registerTool(
+    tool.name,
+    {
+      title: tool.annotations.title,
+      description: tool.description,
+      inputSchema: tool.parameters,
+      annotations: tool.annotations,
+    },
+    async (args: unknown) => {
+      const text = await tool.execute(args, { session, log: consoleLogger });
+      return { content: [{ type: 'text' as const, text }] };
+    }
+  );
+}
 
+function registerTools(mcpServer: McpServer, session: SessionData): void {
 // ============================================================================
 // API Client
 // ============================================================================
 
-function getApiKey(session?: SessionData): string {
-  const apiKey = session?.scrapeOpsApiKey || process.env.SCRAPEOPS_API_KEY;
+function getApiKey(activeSession?: SessionData): string {
+  const apiKey = activeSession?.scrapeOpsApiKey;
   if (!apiKey) {
     throw new Error('API key is required. Set SCRAPEOPS_API_KEY environment variable.');
   }
@@ -614,7 +601,7 @@ const mapsWebSchema = z.object({
     .describe('Maximum credits to spend on this request. Only works with optimize_request: true. Helps control costs by setting a credit limit'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'maps_web',
   annotations: {
     title: 'Browse a webpage',
@@ -990,7 +977,7 @@ const extractDataSchema = z.object({
     .describe('Maximum credits allowed for the request'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'extract_data',
   annotations: {
     title: 'Extract structured data',
@@ -1283,7 +1270,7 @@ const returnLinksSchema = z.object({
     .describe('Maximum credits allowed for the request'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'return_links',
   annotations: {
     title: 'Extract page links',
@@ -1798,7 +1785,7 @@ const analyzeDifficultySchema = z.object({
     .describe('The website URL to analyze for scraping difficulty. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'analyze_scraping_difficulty',
   annotations: {
     title: 'Analyze scraping difficulty',
@@ -1977,7 +1964,7 @@ const checkJsRenderingSchema = z.object({
     .describe('The webpage URL to check for JavaScript rendering requirements'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'check_js_rendering',
   annotations: {
     title: 'Check JS rendering requirement',
@@ -2137,7 +2124,7 @@ const detectAntiBotsSchema = z.object({
     .describe('The website URL to check for anti-bot protection systems'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'detect_anti_bots',
   annotations: {
     title: 'Detect anti-bot protections',
@@ -2268,7 +2255,7 @@ const checkLegalitySchema = z.object({
     .describe('The website URL to check for scraping legality and compliance'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'check_scraping_legality',
   annotations: {
     title: 'Check scraping legality',
@@ -2498,7 +2485,7 @@ const classifyPageTypeSchema = z.object({
     .describe('The website URL to classify. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'classify_page_type',
   annotations: {
     title: 'Classify page type',
@@ -2744,7 +2731,7 @@ const identifyDataSourcesSchema = z.object({
     .describe('The website URL to analyze for data source identification. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'identify_data_sources',
   annotations: {
     title: 'Identify data sources',
@@ -3142,7 +3129,7 @@ const analyzeApiEndpointsSchema = z.object({
     .describe('The website URL to analyze. Fetches the page with JS rendering to capture network requests, then segments them and describes API usage.'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'analyze_api_endpoints',
   annotations: {
     title: 'Analyze API endpoints',
@@ -3277,7 +3264,7 @@ const detectTechStackSchema = z.object({
     .describe('The website URL to analyze. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'detect_tech_stack',
   annotations: {
     title: 'Detect tech stack',
@@ -3569,7 +3556,7 @@ const checkCssSelectorsSchema = z.object({
     .describe('The website URL to analyze CSS selector stability for. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'check_css_selectors',
   annotations: {
     title: 'Check CSS selector stability',
@@ -3848,7 +3835,7 @@ const generateDataSchemaSchema = z.object({
     .describe('Optional page type override. If not provided, the page will be classified automatically. Examples: product_page, job_page, real_estate_page'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'generate_data_schema',
   annotations: {
     title: 'Generate data schema',
