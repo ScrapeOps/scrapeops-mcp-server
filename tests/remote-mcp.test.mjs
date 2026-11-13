@@ -8,6 +8,24 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+
+/** Sorted tool names registered by createScrapeOpsServer (proxy + analysis tools). */
+const EXPECTED_TOOL_NAMES = [
+  'analyze_api_endpoints',
+  'analyze_scraping_difficulty',
+  'check_css_selectors',
+  'check_js_rendering',
+  'check_scraping_legality',
+  'classify_page_type',
+  'detect_anti_bots',
+  'detect_tech_stack',
+  'extract_data',
+  'generate_data_schema',
+  'identify_data_sources',
+  'maps_web',
+  'return_links',
+];
+
 const capturedUrls = [];
 const originalFetch = globalThis.fetch;
 
@@ -166,7 +184,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
 
       const tools = await mcp(base, tokens.access_token, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
       const names = tools.message.result.tools.map((tool) => tool.name).sort();
-      assert.deepEqual(names, ['extract_data', 'maps_web', 'return_links']);
+      assert.deepEqual(names, EXPECTED_TOOL_NAMES);
       for (const tool of tools.message.result.tools) {
         assert.equal(typeof tool.annotations.title, 'string');
         assert.equal(tool.annotations.readOnlyHint, true);
@@ -310,7 +328,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
 
       const listed = await waitForMessage(messages, (message) => message.id === 2);
       const names = listed.result.tools.map((tool) => tool.name).sort();
-      assert.deepEqual(names, ['extract_data', 'maps_web', 'return_links']);
+      assert.deepEqual(names, EXPECTED_TOOL_NAMES);
     } catch (error) {
       assert.fail(`${error instanceof Error ? error.message : error}\n${stderr}`);
     } finally {
