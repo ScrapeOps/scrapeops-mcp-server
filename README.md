@@ -80,7 +80,7 @@ for development environment
 {
     "mcpServers": {
         "@scrapeops/mcp": {
-        "url": "http://localhost:8080/sse",
+        "url": "http://localhost:8080/mcp",
         "headers": {
             "scrapeops-api-key": "SCRAPEOPS_API_KEY"
         }
