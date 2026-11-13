@@ -1785,7 +1785,7 @@ const analyzeDifficultySchema = z.object({
     .describe('The website URL to analyze for scraping difficulty. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'analyze_scraping_difficulty',
   annotations: {
     title: 'Analyze scraping difficulty',
@@ -1964,7 +1964,7 @@ const checkJsRenderingSchema = z.object({
     .describe('The webpage URL to check for JavaScript rendering requirements'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'check_js_rendering',
   annotations: {
     title: 'Check JS rendering requirement',
@@ -2124,7 +2124,7 @@ const detectAntiBotsSchema = z.object({
     .describe('The website URL to check for anti-bot protection systems'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'detect_anti_bots',
   annotations: {
     title: 'Detect anti-bot protections',
@@ -2255,7 +2255,7 @@ const checkLegalitySchema = z.object({
     .describe('The website URL to check for scraping legality and compliance'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'check_scraping_legality',
   annotations: {
     title: 'Check scraping legality',
@@ -2485,7 +2485,7 @@ const classifyPageTypeSchema = z.object({
     .describe('The website URL to classify. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'classify_page_type',
   annotations: {
     title: 'Classify page type',
@@ -2731,7 +2731,7 @@ const identifyDataSourcesSchema = z.object({
     .describe('The website URL to analyze for data source identification. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'identify_data_sources',
   annotations: {
     title: 'Identify data sources',
@@ -3129,7 +3129,7 @@ const analyzeApiEndpointsSchema = z.object({
     .describe('The website URL to analyze. Fetches the page with JS rendering to capture network requests, then segments them and describes API usage.'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'analyze_api_endpoints',
   annotations: {
     title: 'Analyze API endpoints',
@@ -3264,7 +3264,7 @@ const detectTechStackSchema = z.object({
     .describe('The website URL to analyze. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'detect_tech_stack',
   annotations: {
     title: 'Detect tech stack',
@@ -3556,7 +3556,7 @@ const checkCssSelectorsSchema = z.object({
     .describe('The website URL to analyze CSS selector stability for. Must include protocol (http:// or https://)'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'check_css_selectors',
   annotations: {
     title: 'Check CSS selector stability',
@@ -3835,7 +3835,7 @@ const generateDataSchemaSchema = z.object({
     .describe('Optional page type override. If not provided, the page will be classified automatically. Examples: product_page, job_page, real_estate_page'),
 });
 
-server.addTool({
+registerScrapeOpsTool(mcpServer, session, {
   name: 'generate_data_schema',
   annotations: {
     title: 'Generate data schema',

@@ -494,7 +494,7 @@ describe('remote mcp', { concurrency: 1 }, () => {
 
       child.write({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: modernMeta('stdio-modern') } });
       const listed = await child.waitFor((message) => message.id === 2);
-      assert.deepEqual(listed.result.tools.map((tool) => tool.name).sort(), ['extract_data', 'maps_web', 'return_links']);
+      assert.deepEqual(listed.result.tools.map((tool) => tool.name).sort(), EXPECTED_TOOL_NAMES);
       assert.equal(typeof listed.result.ttlMs, 'number');
       assert.ok(['public', 'private'].includes(listed.result.cacheScope));
     } catch (error) {
